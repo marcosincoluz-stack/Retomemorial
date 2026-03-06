@@ -1,314 +1,300 @@
 "use client";
 
-import React, { useEffect, useId, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { useOutsideClick } from "@/hooks/use-outside-click";
-import TypingAnimation from "@/components/ui/typing-animation";
-import { useParams } from "next/navigation";
-import { ATHLETES, EVENTS } from "@/lib/data";
+import React, { useState, useMemo, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { EVENTS, ATHLETES } from "@/lib/data";
+import { submitFullParticipation } from "@/app/actions";
+import { MultiStepLoader } from "@/components/ui/multi-step-loader";
+import { motion, AnimatePresence } from "framer-motion";
+import { MoveLeft, Search, Plus, Check, X, Lock } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-export default function EventPage() {
+const loadingStates = [
+    { text: "Registrando tu equipo unificado..." },
+    { text: "Verificando los 6 atletas seleccionados..." },
+    { text: "Generando tu boleto premium..." },
+    { text: "Preparando acceso VIP..." },
+    { text: "¡Todo listo! Tu apuesta ha sido registrada. 🎟️" },
+];
+
+export default function UnifiedSelectionPage() {
+    const router = useRouter();
     const params = useParams();
-    const slug = params.slug as string;
-    const event = EVENTS.find((e) => e.slug === slug);
-    const title = event ? event.title : "Selecciona tu Atleta";
 
-    const [active, setActive] = useState<(typeof cards)[number] | boolean | null>(
-        null
-    );
-    const ref = useRef<HTMLDivElement>(null);
-    const id = useId();
+    const [activeEventSlug, setActiveEventSlug] = useState<string>('disco');
+    const [genderFilter, setGenderFilter] = useState<"male" | "female">("male");
 
-    useEffect(() => {
-        function onKeyDown(event: KeyboardEvent) {
-            if (event.key === "Escape") {
-                setActive(false);
+    const [selections, setSelections] = useState<Record<string, { maleId: string | null; femaleId: string | null }>>({
+        disco: { maleId: null, femaleId: null },
+        jabalina: { maleId: null, femaleId: null },
+        longitud: { maleId: null, femaleId: null },
+    });
+
+    const [searchQuery, setSearchQuery] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    const activeEvent = EVENTS.find(e => e.slug === activeEventSlug) || EVENTS[0];
+    const eventAthletes = ATHLETES[activeEventSlug as keyof typeof ATHLETES];
+
+    const filteredAthletes = useMemo(() => {
+        if (!eventAthletes) return [];
+        const pool = genderFilter === 'male' ? eventAthletes.male : eventAthletes.female;
+        return pool.filter(athlete =>
+            athlete.name.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [eventAthletes, searchQuery, genderFilter]);
+
+    const handleToggleAthlete = (id: string) => {
+        setSelections(prev => {
+            const current = { ...prev[activeEventSlug] };
+            if (genderFilter === 'male') {
+                current.maleId = current.maleId === id ? null : id;
+            } else {
+                current.femaleId = current.femaleId === id ? null : id;
             }
+            return { ...prev, [activeEventSlug]: current };
+        });
+    };
+
+    const isComplete = useMemo(() => {
+        return EVENTS.every(e => selections[e.slug].maleId && selections[e.slug].femaleId);
+    }, [selections]);
+
+    const handleConfirm = async () => {
+        if (!isComplete) return;
+        setLoading(true);
+    };
+
+    const onLoaderComplete = async () => {
+        try {
+            const result = await submitFullParticipation(selections);
+            if (result.success && result.reference) {
+                window.location.href = `/confirmation/${result.reference}`;
+            } else {
+                setLoading(false);
+                setErrorMsg(result.message || "Error al registrar.");
+            }
+        } catch (error) {
+            setLoading(false);
+            setErrorMsg("Error de conexión.");
         }
+    };
 
-        if (active && typeof active === "object") {
-            document.body.style.overflow = "hidden";
-        } else {
-            document.body.style.overflow = "auto";
-        }
-
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [active]);
-
-    useOutsideClick(ref, () => setActive(null));
+    const getAthleteById = (id: string | null, event: string, gender: 'male' | 'female') => {
+        if (!id) return null;
+        const athletes = ATHLETES[event as keyof typeof ATHLETES];
+        return athletes[gender].find(a => a.id === id);
+    };
 
     return (
-        <div className="min-h-screen bg-black w-full p-4 md:p-8 flex flex-col items-center">
-            <div className="mb-8 mt-4">
-                <TypingAnimation className="text-4xl md:text-6xl font-bold text-white">
-                    {title}
-                </TypingAnimation>
-            </div>
-            <>
-                <AnimatePresence>
-                    {active && typeof active === "object" && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 bg-black/20 h-full w-full z-10" />
-                    )}
-                </AnimatePresence>
-                <AnimatePresence>
-                    {active && typeof active === "object" ? (
-                        <div className="fixed inset-0  grid place-items-center z-[100]">
-                            <motion.button
-                                key={`button-${active.title}-${id}`}
-                                layout
-                                initial={{
-                                    opacity: 0,
-                                }}
-                                animate={{
-                                    opacity: 1,
-                                }}
-                                exit={{
-                                    opacity: 0,
-                                    transition: {
-                                        duration: 0.05,
-                                    },
-                                }}
-                                className="flex absolute top-2 right-2 lg:hidden items-center justify-center bg-white rounded-full h-6 w-6"
-                                onClick={() => setActive(null)}>
-                                <CloseIcon />
-                            </motion.button>
-                            <motion.div
-                                layoutId={`card-${active.title}-${id}`}
-                                ref={ref}
-                                className="w-full max-w-[500px]  h-full md:h-fit md:max-h-[90%]  flex flex-col bg-white dark:bg-neutral-900 sm:rounded-3xl overflow-hidden">
-                                <motion.div layoutId={`image-${active.title}-${id}`}>
-                                    <img
-                                        width={200}
-                                        height={200}
-                                        src={active.src}
-                                        alt={active.title}
-                                        className="w-full h-80 lg:h-80 sm:rounded-tr-lg sm:rounded-tl-lg object-cover object-top" />
-                                </motion.div>
+        <main className="min-h-screen bg-black text-white font-sans antialiased selection:bg-green-500/30 overflow-x-hidden">
+            <div className="relative min-h-screen flex flex-col pb-36">
 
-                                <div>
-                                    <div className="flex justify-between items-start p-4">
-                                        <div className="">
-                                            <motion.h3
-                                                layoutId={`title-${active.title}-${id}`}
-                                                className="font-bold text-neutral-700 dark:text-neutral-200">
-                                                {active.title}
-                                            </motion.h3>
-                                            <motion.p
-                                                layoutId={`description-${active.description}-${id}`}
-                                                className="text-neutral-600 dark:text-neutral-400">
-                                                {active.description}
-                                            </motion.p>
-                                        </div>
+                {/* Header - Centered Layout */}
+                <header className="sticky top-0 z-50 px-6 pt-10 pb-6 bg-black/95 backdrop-blur-md flex items-center justify-between">
+                    <button
+                        onClick={() => router.back()}
+                        className="size-11 flex items-center justify-center rounded-full bg-white/5 text-white transition-all hover:bg-white/10 border border-white/5 active:scale-95"
+                    >
+                        <MoveLeft className="w-5 h-5" />
+                    </button>
 
-                                        <motion.a
-                                            layoutId={`button-${active.title}-${id}`}
-                                            href={active.ctaLink}
-                                            target="_blank"
-                                            className="px-4 py-3 text-sm rounded-full font-bold bg-green-500 text-white">
-                                            {active.ctaText}
-                                        </motion.a>
-                                    </div>
-                                    <div className="pt-4 relative px-4">
-                                        <motion.div
-                                            layout
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0 }}
-                                            className="text-neutral-600 text-xs md:text-sm lg:text-base h-40 md:h-fit pb-10 flex flex-col items-start gap-4 overflow-auto dark:text-neutral-400 [mask:linear-gradient(to_bottom,white,white,transparent)] [scrollbar-width:none] [-ms-overflow-style:none] [-webkit-overflow-scrolling:touch]">
-                                            {typeof active.content === "function"
-                                                ? active.content()
-                                                : active.content}
-                                        </motion.div>
-                                    </div>
-                                </div>
-                            </motion.div>
+                    <h1 className="text-xl font-bold tracking-tight text-white translate-x-1">Reto Memorial</h1>
+
+                    <div className="flex items-center gap-2.5">
+                        <span className="text-[11px] font-black text-zinc-500 tracking-tighter">5/6</span>
+                        <div className="flex gap-1.5 items-center">
+                            {[1, 2, 3, 4, 5, 6].map((dot) => (
+                                <div
+                                    key={dot}
+                                    className={cn(
+                                        "size-1.5 rounded-full transition-all duration-300",
+                                        dot <= 5 ? "bg-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.3)]" : "bg-zinc-800 scale-90"
+                                    )}
+                                />
+                            ))}
                         </div>
-                    ) : null}
-                </AnimatePresence>
-                <ul className="max-w-2xl mx-auto w-full gap-4">
-                    {cards.map((card, index) => (
-                        <motion.div
-                            layoutId={`card-${card.title}-${id}`}
-                            key={`card-${card.title}-${id}`}
-                            onClick={() => setActive(card)}
-                            className="p-4 flex flex-row justify-between items-center hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-xl cursor-pointer">
-                            <div className="flex gap-4 flex-row ">
-                                <motion.div layoutId={`image-${card.title}-${id}`}>
-                                    <img
-                                        width={100}
-                                        height={100}
-                                        src={card.src}
-                                        alt={card.title}
-                                        className="h-14 w-14 rounded-lg object-cover object-top" />
-                                </motion.div>
-                                <div className="">
-                                    <motion.h3
-                                        layoutId={`title-${card.title}-${id}`}
-                                        className="font-medium text-neutral-200 text-left">
-                                        {card.title}
-                                    </motion.h3>
-                                    <motion.p
-                                        layoutId={`description-${card.description}-${id}`}
-                                        className="text-neutral-400 text-left">
-                                        {card.description}
-                                    </motion.p>
-                                </div>
-                            </div>
-                            <motion.button
-                                layoutId={`button-${card.title}-${id}`}
-                                className="px-4 py-2 text-sm rounded-full font-bold bg-gray-100 hover:bg-green-500 hover:text-white text-black mt-4 md:mt-0">
-                                {card.ctaText}
-                            </motion.button>
-                        </motion.div>
+                    </div>
+                </header>
+
+                {/* Selection Matrix - High Fidelity 3x2 Grid */}
+                <section className="px-6 my-8 grid grid-cols-3 gap-3.5 relative z-10">
+                    {EVENTS.map(event => (
+                        <div key={event.slug} className="flex flex-col gap-4">
+                            <span className={cn(
+                                "text-[10px] font-black uppercase tracking-[0.25em] text-center transition-colors duration-300",
+                                activeEventSlug === event.slug ? "text-white" : "text-zinc-600"
+                            )}>
+                                {event.name}
+                            </span>
+
+                            {/* Male Slot */}
+                            <AthleteSlot
+                                athlete={getAthleteById(selections[event.slug].maleId, event.slug, 'male')}
+                                gender="M"
+                                isActive={activeEventSlug === event.slug && genderFilter === 'male'}
+                                onClick={() => { setActiveEventSlug(event.slug); setGenderFilter('male'); }}
+                            />
+
+                            {/* Female Slot */}
+                            <AthleteSlot
+                                athlete={getAthleteById(selections[event.slug].femaleId, event.slug, 'female')}
+                                gender="F"
+                                isActive={activeEventSlug === event.slug && genderFilter === 'female'}
+                                onClick={() => { setActiveEventSlug(event.slug); setGenderFilter('female'); }}
+                            />
+                        </div>
                     ))}
-                </ul>
-            </>
-        </div>
+                </section>
+
+                {/* Gender Pill Selector - Rounded Large Design */}
+                <div className="px-12 mb-10 pt-2">
+                    <div className="flex p-1.5 bg-[#141414] rounded-[24px] border border-white/5 shadow-inner">
+                        <button
+                            onClick={() => setGenderFilter('male')}
+                            className={cn(
+                                "flex-1 py-3.5 rounded-[18px] text-sm font-bold transition-all duration-300",
+                                genderFilter === 'male' ? "bg-[#252525] text-white shadow-2xl ring-1 ring-white/5" : "text-zinc-600 hover:text-white/60"
+                            )}
+                        >
+                            Masculino
+                        </button>
+                        <button
+                            onClick={() => setGenderFilter('female')}
+                            className={cn(
+                                "flex-1 py-3.5 rounded-[18px] text-sm font-bold transition-all duration-300",
+                                genderFilter === 'female' ? "bg-[#252525] text-white shadow-2xl ring-1 ring-white/5" : "text-zinc-600 hover:text-white/60"
+                            )}
+                        >
+                            Femenina
+                        </button>
+                    </div>
+                </div>
+
+                {/* Athlete List Section - Bubble Cards */}
+                <section className="px-6 flex flex-col flex-1 relative z-10 pb-10">
+                    <div className="space-y-4">
+                        <AnimatePresence mode="popLayout">
+                            {filteredAthletes.map((athlete) => {
+                                const isSelected = selections[activeEventSlug].maleId === athlete.id || selections[activeEventSlug].femaleId === athlete.id;
+                                return (
+                                    <motion.div
+                                        layout
+                                        key={athlete.id}
+                                        initial={{ opacity: 0, scale: 0.98 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.98 }}
+                                        className={cn(
+                                            "p-3 rounded-[32px] flex items-center gap-4 bg-[#0d0d0d] border transition-all duration-300 group",
+                                            isSelected ? "border-white/10 bg-[#141414]" : "border-white/5"
+                                        )}
+                                    >
+                                        <div className="relative p-0.5 rounded-[18px] border border-yellow-500/20 group-hover:border-yellow-500/40 transition-colors">
+                                            <img src={athlete.image} className="size-16 rounded-[16px] object-cover grayscale contrast-125 saturate-0 group-hover:grayscale-0 transition-all duration-500" />
+                                        </div>
+                                        <div className="flex-1 px-1">
+                                            <p className="font-bold text-lg leading-tight tracking-tight text-white/90">{athlete.name}</p>
+                                            <p className="text-[11px] text-zinc-600 font-black uppercase tracking-[0.15em] mt-1.5 flex items-center gap-1.5">
+                                                {activeEvent.name} <span className="size-1 rounded-full bg-zinc-800" /> {athlete.mark}m
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleToggleAthlete(athlete.id)}
+                                            className={cn(
+                                                "size-12 rounded-full flex items-center justify-center transition-all duration-300 active:scale-90",
+                                                isSelected
+                                                    ? "bg-white text-black shadow-lg"
+                                                    : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white"
+                                            )}
+                                        >
+                                            {isSelected ? <Check className="w-6 h-6" strokeWidth={3} /> : <Plus className="w-6 h-6" strokeWidth={2} />}
+                                        </button>
+                                    </motion.div>
+                                );
+                            })}
+                        </AnimatePresence>
+                    </div>
+
+                    {filteredAthletes.length === 0 && (
+                        <div className="py-20 text-center opacity-40">
+                            <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">No se hallaron atletas</p>
+                        </div>
+                    )}
+                </section>
+
+                {/* Sticky Footer CTA - Centered Pill */}
+                <div className="fixed bottom-0 inset-x-0 p-8 pt-4 bg-gradient-to-t from-black via-black/80 to-transparent z-50">
+                    <button
+                        disabled={!isComplete}
+                        onClick={handleConfirm}
+                        className={cn(
+                            "w-full h-18 py-5 rounded-[40px] font-black text-[17px] uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-500",
+                            isComplete
+                                ? "bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.1)] active:scale-[0.98] opacity-100"
+                                : "bg-[#444444] text-black/40 cursor-not-allowed opacity-80"
+                        )}
+                    >
+                        Confirmar Todo
+                        {!isComplete && <Lock className="w-4.5 h-4.5 mb-0.5" />}
+                    </button>
+                </div>
+            </div>
+
+            <MultiStepLoader loadingStates={loadingStates} loading={loading} duration={1000} onComplete={onLoaderComplete} />
+        </main>
     );
 }
 
-export const CloseIcon = () => {
+function AthleteSlot({ athlete, gender, isActive, onClick }: any) {
     return (
-        <motion.svg
-            initial={{
-                opacity: 0,
-            }}
-            animate={{
-                opacity: 1,
-            }}
-            exit={{
-                opacity: 0,
-                transition: {
-                    duration: 0.05,
-                },
-            }}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-4 w-4 text-black">
-            <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-            <path d="M18 6l-12 12" />
-            <path d="M6 6l12 12" />
-        </motion.svg>
+        <div
+            onClick={onClick}
+            className={cn(
+                "aspect-[4/6] rounded-[34px] border relative transition-all duration-500 overflow-hidden cursor-pointer",
+                isActive
+                    ? "border-yellow-500 ring-4 ring-yellow-500/10 shadow-[0_0_30px_rgba(234,179,8,0.2)] scale-[1.05] z-20"
+                    : "border-white/5 bg-[#0a0a0a] scale-100 z-10",
+                athlete ? "border-transparent" : "border-dashed"
+            )}
+        >
+            <AnimatePresence mode="wait">
+                {athlete ? (
+                    <motion.div
+                        key="athlete"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute inset-0"
+                    >
+                        <img src={athlete.image} className="w-full h-full object-cover grayscale contrast-110 saturate-0 opacity-80 brightness-[0.85]" />
+                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/30 to-transparent" />
+
+                        {/* High Vis Checkmark Badge */}
+                        <motion.div
+                            initial={{ scale: 0, rotate: -45 }}
+                            animate={{ scale: 1, rotate: 0 }}
+                            className="absolute top-2.5 right-2.5 size-6 rounded-full bg-[#10b981] flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] z-30"
+                        >
+                            <Check className="w-3.5 h-3.5 text-white" strokeWidth={4} />
+                        </motion.div>
+
+                        <div className="absolute bottom-3 inset-x-0 text-center z-20">
+                            <span className="text-[11px] font-black uppercase text-white tracking-[0.2em]">{gender}</span>
+                        </div>
+                    </motion.div>
+                ) : (
+                    <motion.div
+                        key="empty"
+                        className="absolute inset-0 flex flex-col items-center justify-center group"
+                    >
+                        <div className="flex flex-col items-center gap-1.5 transition-all duration-500 group-hover:scale-110">
+                            <Plus className="w-6 h-6 text-zinc-800" strokeWidth={3} />
+                            <span className="text-[12px] font-black text-zinc-800 tracking-tighter leading-none">{gender}</span>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
     );
-};
-
-const cards = [
-    {
-        description: "Lana Del Rey",
-        title: "Summertime Sadness",
-        src: "https://assets.aceternity.com/demos/lana-del-rey.jpeg",
-        ctaText: "Play",
-        ctaLink: "https://ui.aceternity.com/templates",
-        content: () => {
-            return (
-                <p>Lana Del Rey, an iconic American singer-songwriter, is celebrated for
-                    her melancholic and cinematic music style. Born Elizabeth Woolridge
-                    Grant in New York City, she has captivated audiences worldwide with
-                    her haunting voice and introspective lyrics. <br /> <br />Her songs
-                    often explore themes of tragic romance, glamour, and melancholia,
-                    drawing inspiration from both contemporary and vintage pop culture.
-                    With a career that has seen numerous critically acclaimed albums, Lana
-                    Del Rey has established herself as a unique and influential figure in
-                    the music industry, earning a dedicated fan base and numerous
-                    accolades.
-                </p>
-            );
-        },
-    },
-    {
-        description: "Babbu Maan",
-        title: "Mitran Di Chhatri",
-        src: "https://assets.aceternity.com/demos/babbu-maan.jpeg",
-        ctaText: "Play",
-        ctaLink: "https://ui.aceternity.com/templates",
-        content: () => {
-            return (
-                <p>Babu Maan, a legendary Punjabi singer, is renowned for his soulful
-                    voice and profound lyrics that resonate deeply with his audience. Born
-                    in the village of Khant Maanpur in Punjab, India, he has become a
-                    cultural icon in the Punjabi music industry. <br /> <br />His songs
-                    often reflect the struggles and triumphs of everyday life, capturing
-                    the essence of Punjabi culture and traditions. With a career spanning
-                    over two decades, Babu Maan has released numerous hit albums and
-                    singles that have garnered him a massive fan following both in India
-                    and abroad.
-                </p>
-            );
-        },
-    },
-
-    {
-        description: "Metallica",
-        title: "For Whom The Bell Tolls",
-        src: "https://assets.aceternity.com/demos/metallica.jpeg",
-        ctaText: "Play",
-        ctaLink: "https://ui.aceternity.com/templates",
-        content: () => {
-            return (
-                <p>Metallica, an iconic American heavy metal band, is renowned for their
-                    powerful sound and intense performances that resonate deeply with
-                    their audience. Formed in Los Angeles, California, they have become a
-                    cultural icon in the heavy metal music industry. <br /> <br />Their
-                    songs often reflect themes of aggression, social issues, and personal
-                    struggles, capturing the essence of the heavy metal genre. With a
-                    career spanning over four decades, Metallica has released numerous hit
-                    albums and singles that have garnered them a massive fan following
-                    both in the United States and abroad.
-                </p>
-            );
-        },
-    },
-    {
-        description: "Led Zeppelin",
-        title: "Stairway To Heaven",
-        src: "https://assets.aceternity.com/demos/led-zeppelin.jpeg",
-        ctaText: "Play",
-        ctaLink: "https://ui.aceternity.com/templates",
-        content: () => {
-            return (
-                <p>Led Zeppelin, a legendary British rock band, is renowned for their
-                    innovative sound and profound impact on the music industry. Formed in
-                    London in 1968, they have become a cultural icon in the rock music
-                    world. <br /> <br />Their songs often reflect a blend of blues, hard
-                    rock, and folk music, capturing the essence of the 1970s rock era.
-                    With a career spanning over a decade, Led Zeppelin has released
-                    numerous hit albums and singles that have garnered them a massive fan
-                    following both in the United Kingdom and abroad.
-                </p>
-            );
-        },
-    },
-    {
-        description: "Mustafa Zahid",
-        title: "Toh Phir Aao",
-        src: "https://assets.aceternity.com/demos/toh-phir-aao.jpeg",
-        ctaText: "Play",
-        ctaLink: "https://ui.aceternity.com/templates",
-        content: () => {
-            return (
-                <p>"Aawarapan", a Bollywood movie starring Emraan Hashmi, is
-                    renowned for its intense storyline and powerful performances. Directed
-                    by Mohit Suri, the film has become a significant work in the Indian
-                    film industry. <br /> <br />The movie explores themes of love,
-                    redemption, and sacrifice, capturing the essence of human emotions and
-                    relationships. With a gripping narrative and memorable music,
-                    "Aawarapan" has garnered a massive fan following both in
-                    India and abroad, solidifying Emraan Hashmi's status as a
-                    versatile actor.
-                </p>
-            );
-        },
-    },
-];
+}

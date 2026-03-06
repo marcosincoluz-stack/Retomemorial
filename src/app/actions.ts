@@ -4,7 +4,7 @@ import { EVENTS } from "@/lib/data";
 import { generateReferenceNumber } from "@/lib/utils";
 import { addMinutes, isAfter, isBefore, } from "date-fns";
 
-export type ParticipationResult = {
+export type FullParticipationResult = {
     success: boolean;
     message?: string;
     reference?: string;
@@ -44,25 +44,57 @@ export async function validateAndTimeCheck(eventSlug: string): Promise<{
     return { allowed: true, serverTime: now.toISOString() };
 }
 
-export async function submitParticipation(
-    eventSlug: string,
-    maleAthleteId: string,
-    femaleAthleteId: string
-): Promise<ParticipationResult> {
-    const validation = await validateAndTimeCheck(eventSlug);
-    if (!validation.allowed) {
-        return { success: false, message: validation.reason };
+// Mock participations DB
+let mockParticipations: any[] = [];
+
+export async function submitFullParticipation(
+    selections: Record<string, { maleId: string | null; femaleId: string | null }>
+): Promise<FullParticipationResult> {
+    // Check if all are selected (3 events * 2 athletes = 6)
+    const allSelected = EVENTS.every(event =>
+        selections[event.slug]?.maleId && selections[event.slug]?.femaleId
+    );
+
+    if (!allSelected) {
+        return { success: false, message: "Debes seleccionar todos los atletas." };
     }
 
-    // Generate Reference
-    // In a real app, this would be a DB transaction
-    const seq = (sequenceCounter as any)[eventSlug] || 1;
-    (sequenceCounter as any)[eventSlug] = seq + 1;
+    // Check time for all events
+    for (const event of EVENTS) {
+        const validation = await validateAndTimeCheck(event.slug);
+        if (!validation.allowed) {
+            return { success: false, message: `El evento ${event.name} ha cerrado.` };
+        }
+    }
 
-    const ref = generateReferenceNumber(eventSlug, seq);
+    // Generate Unified Reference
+    const seq = Object.values(sequenceCounter).reduce((a, b) => a + b, 0);
+    const ref = `RM-${seq.toString().padStart(4, '0')}`;
 
-    // Here save to DB...
-    console.log(`Saving participation: ${eventSlug}, ${maleAthleteId}, ${femaleAthleteId}, ${ref}`);
+    // Save to Mock DB
+    mockParticipations.push({
+        reference: ref,
+        selections,
+        delivered: false,
+        createdAt: new Date().toISOString()
+    });
+
+    console.log(`Saving full participation: ${ref}`, selections);
 
     return { success: true, reference: ref };
+}
+
+export async function getParticipation(ref: string) {
+    const part = mockParticipations.find(p => p.reference === ref);
+    if (!part) return null;
+    return part;
+}
+
+export async function markDelivered(ref: string) {
+    const part = mockParticipations.find(p => p.reference === ref);
+    if (part) {
+        part.delivered = true;
+        return true;
+    }
+    return false;
 }

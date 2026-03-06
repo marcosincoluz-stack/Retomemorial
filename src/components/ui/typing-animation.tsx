@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
 
@@ -55,6 +56,16 @@ export default function TypingAnimation({
             )}
         >
             {displayedText}
+            <motion.span
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{
+                    duration: 0.8,
+                    repeat: Infinity,
+                    ease: "linear",
+                }}
+                className="inline-block w-[2px] h-[1em] bg-current ml-1"
+            />
         </Component>
     );
 }
