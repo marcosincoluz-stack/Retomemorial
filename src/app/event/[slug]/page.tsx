@@ -402,12 +402,12 @@ export default function UnifiedSelectionPage() {
                                             id: athlete.id,
                                             name: athlete.name,
                                             image: athlete.image,
-                                            mark: athlete.mark,
+                                            mark: athlete.mark ?? 0,
                                             bio: ATHLETE_BIOS[athlete.id] ?? `Atleta especialista en ${activeEvent.name.toLowerCase()} con enfoque competitivo y regularidad en grandes eventos.`,
                                             highlights: ATHLETE_HIGHLIGHTS[athlete.id] ?? [
                                                 { tier: "gold", label: "Rendimiento consistente en temporada" },
                                                 { tier: "silver", label: "Competidor habitual en pruebas oficiales" },
-                                                { tier: "bronze", label: `Mejor marca registrada: ${athlete.mark.toFixed(2)} m` },
+                                                { tier: "bronze", label: `Mejor marca registrada: ${(athlete.mark ?? 0).toFixed(2)} m` },
                                             ],
                                             eventName: activeEvent.name,
                                             genderKey: genderFilter,
@@ -585,12 +585,12 @@ export default function UnifiedSelectionPage() {
                                             }}
                                             style={{ transform: "translateZ(8px)" }}
                                         >
-                                        <img
-                                            src={selectionBurst.athlete.image}
-                                            alt={selectionBurst.athlete.name}
-                                            className="absolute inset-0 h-full w-full rounded-[10px] bg-[#000000] object-cover saturate-[1.15]"
-                                        />
-                                        <div className="absolute inset-0 rounded-[10px] bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
+                                            <img
+                                                src={selectionBurst.athlete.image}
+                                                alt={selectionBurst.athlete.name}
+                                                className="absolute inset-0 h-full w-full rounded-[10px] bg-[#000000] object-cover saturate-[1.15]"
+                                            />
+                                            <div className="absolute inset-0 rounded-[10px] bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
                                         </motion.div>
                                     </div>
                                     <motion.div
