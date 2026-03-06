@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html class="dark" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#13ec5b",
+                        "background-light": "#f6f8f6",
+                        "background-dark": "#000000",
+                        "gold": "#b59b54",
+                        "gold-light": "#d4c38d",
+                        "gold-dark": "#7a6631"
+                    },
+                    fontFamily: {
+                        "display": ["-apple-system", "BlinkMacSystemFont", "SF Pro Display", "Segoe UI", "Roboto", "Helvetica", "Arial", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .bento-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+        }
+        body {
+            min-height: max(884px, 100dvh);
+            background-color: #000;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-black font-display text-slate-100 antialiased overflow-x-hidden">
+<div class="relative min-h-screen flex flex-col pb-28">
+<div class="absolute top-0 left-1/2 -translate-x-1/2 w-[120%] h-[300px] bg-white/10 blur-[100px] rounded-full mix-blend-screen pointer-events-none"></div>
+<header class="fixed top-0 left-0 right-0 z-40 px-4 py-3 bg-transparent flex items-center justify-between">
+<button class="flex items-center justify-center size-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-slate-100 hover:bg-white/20 transition">
+<span class="material-symbols-outlined text-[20px]">arrow_back</span>
+</button>
+<button class="flex items-center justify-center size-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-slate-100 hover:bg-white/20 transition">
+<span class="material-symbols-outlined text-[20px]">ios_share</span>
+</button>
+</header>
+<section class="flex-1 flex flex-col pt-0 relative z-10">
+<div class="w-full aspect-[4/5] relative">
+<img alt="Elena Rivas" class="w-full h-full object-cover object-top" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2pPPBs-SbzOF_To_Gy3LYS8Wsox9U8AcXNGw1DwW2s9NzEuTPRwL9NcTrshrc7a9qcJLP4_Nri-qNe-I4nd8SUW1tlJYWK9lYQwPpGFlH3WDIOMGYjaowxJs8KKu7og02Ml0h3tKWMGM_QhSbnq2nNx8y4PaUc2cy5AngbtXYeDxblDEu1b0s5ByQkss5VFiEWwJdfW-M8ogm1x9CPzYSHpAvtbnPgruTHFcf0BZHXQhJfTNY1B103p4eGN1TbwjTJs_QkAWR3GY"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
+<div class="absolute bottom-6 left-4 right-4 flex flex-col gap-1">
+<h1 class="text-4xl font-bold tracking-tight text-white leading-none">Elena Rivas</h1>
+<p class="text-[15px] font-medium text-white/70 tracking-wide uppercase">Lanzamiento de Disco</p>
+</div>
+</div>
+<div class="px-4 py-6 flex flex-col gap-6">
+<div class="grid grid-cols-2 gap-3">
+<div class="bento-card p-4 flex flex-col justify-center gap-1 h-[90px]">
+<span class="text-[11px] font-medium text-white/50 uppercase tracking-wider">Mejor Marca</span>
+<span class="text-2xl font-bold text-white tracking-tight">68.50<span class="text-lg text-white/50">m</span></span>
+</div>
+<div class="grid grid-rows-2 gap-3 h-[90px]">
+<div class="bento-card px-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-gold-light text-[18px]">workspace_premium</span>
+<div class="flex flex-col">
+<span class="text-[9px] font-medium text-white/50 uppercase tracking-wider leading-none">Racha</span>
+<span class="text-[12px] font-bold text-white mt-0.5 leading-none">3 podios seguidos</span>
+</div>
+</div>
+<div class="bento-card px-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-white/70 text-[18px]">public</span>
+<div class="flex flex-col">
+<span class="text-[9px] font-medium text-white/50 uppercase tracking-wider leading-none">Nacionalidad</span>
+<span class="text-[12px] font-bold text-white mt-0.5 leading-none">España</span>
+</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<h3 class="text-[13px] font-semibold text-white">Biografía</h3>
+<p class="text-[14px] leading-relaxed text-white/70 font-light">
+    Atleta olímpica especializada en lanzamiento de disco con más de 10 años de experiencia internacional. Reconocida por su técnica explosiva y consistencia en grandes competiciones.
+    </p>
+</div>
+</div>
+</section>
+<div class="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black via-black/95 to-transparent pt-12 z-50 backdrop-blur-[4px]">
+<button class="w-full bg-white text-black h-14 rounded-full font-bold text-[15px] shadow-[0_0_30px_rgba(255,255,255,0.2)] active:scale-95 transition-all tracking-wide flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                Añadir al Equipo
+            </button>
+</div>
+</div>
+</body></html>
