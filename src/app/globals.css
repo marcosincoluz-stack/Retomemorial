@@ -62,7 +62,8 @@
 @layer base {
   html,
   body {
-    background-color: #000000;
+    background-color: #f5f7fb;
+    color-scheme: light;
   }
 
   * {

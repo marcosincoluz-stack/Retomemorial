@@ -46,31 +46,31 @@ export default function AdminPage() {
     };
 
     return (
-        <main className="min-h-screen bg-black text-white relative p-6 md:p-12 flex flex-col items-center">
+        <main className="min-h-screen bg-slate-50 text-slate-900 relative p-6 md:p-12 flex flex-col items-center">
             <DotPattern
-                className="fixed inset-0 z-0 opacity-20"
+                className="fixed inset-0 z-0 opacity-30"
                 cx={1} cy={1} cr={1}
             />
 
             <div className="relative z-10 w-full max-w-xl">
-                <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-neutral-200 to-neutral-500 mb-8 border-b border-neutral-800 pb-4">
+                <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-500 mb-8 border-b border-slate-200 pb-4">
                     Control de Premios
                 </h1>
 
                 <form onSubmit={handleSearch} className="mb-10">
                     <div className="relative flex items-center">
-                        <Search className="absolute left-4 w-5 h-5 text-neutral-500" />
+                        <Search className="absolute left-4 w-5 h-5 text-slate-400" />
                         <input
                             type="text"
                             value={ref}
                             onChange={(e) => setRef(e.target.value)}
                             placeholder="Referencia (Ej: 2026-DIS-00487)"
-                            className="w-full bg-neutral-900 border border-neutral-700/50 rounded-xl py-4 pl-12 pr-32 focus:outline-none focus:ring-2 focus:ring-green-500/50 font-mono text-lg uppercase"
+                            className="w-full bg-white border border-slate-200 rounded-xl py-4 pl-12 pr-32 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-mono text-lg uppercase"
                         />
                         <button
                             type="submit"
                             disabled={loading || !ref.trim()}
-                            className="absolute right-2 top-2 bottom-2 bg-neutral-800 hover:bg-neutral-700 text-white font-medium rounded-lg px-6 transition disabled:opacity-50"
+                            className="absolute right-2 top-2 bottom-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg px-6 transition disabled:opacity-50"
                         >
                             Buscar
                         </button>
@@ -84,14 +84,14 @@ export default function AdminPage() {
                 )}
 
                 {result && (
-                    <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 shadow-2xl">
-                        <div className="flex justify-between items-start mb-6 border-b border-neutral-800 pb-6">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-[0_18px_50px_rgba(15,23,42,0.1)]">
+                        <div className="flex justify-between items-start mb-6 border-b border-slate-200 pb-6">
                             <div>
-                                <p className="text-neutral-500 text-sm uppercase tracking-wider font-bold mb-1">Referencia</p>
-                                <p className="text-2xl font-mono text-green-400">{result.reference}</p>
+                                <p className="text-slate-500 text-sm uppercase tracking-wider font-bold mb-1">Referencia</p>
+                                <p className="text-2xl font-mono text-emerald-600">{result.reference}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-neutral-500 text-sm uppercase tracking-wider font-bold mb-1">Estado</p>
+                                <p className="text-slate-500 text-sm uppercase tracking-wider font-bold mb-1">Estado</p>
                                 {result.delivered ? (
                                     <span className="inline-flex items-center gap-1 bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm font-bold border border-green-500/30">
                                         <CheckCircle2 className="w-4 h-4" /> Entregado
@@ -105,27 +105,27 @@ export default function AdminPage() {
                         </div>
 
                         <div className="mb-8">
-                            <p className="text-neutral-500 text-sm uppercase tracking-wider font-bold mb-3">Prueba</p>
-                            <h2 className="text-2xl font-bold text-white">{result.event?.title}</h2>
+                            <p className="text-slate-500 text-sm uppercase tracking-wider font-bold mb-3">Prueba</p>
+                            <h2 className="text-2xl font-bold text-slate-900">{result.event?.title}</h2>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 mb-8">
-                            <div className="bg-black/50 border border-white/5 rounded-2xl p-4 text-center">
-                                <p className="text-neutral-500 text-[10px] uppercase font-bold tracking-widest mb-3">Masculino</p>
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+                                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-3">Masculino</p>
                                 <img src={result.male?.image} alt={result.male?.name} className="w-16 h-16 rounded-full object-cover mx-auto mb-2 opacity-80" />
-                                <p className="font-medium text-sm text-neutral-300 line-clamp-1">{result.male?.name}</p>
+                                <p className="font-medium text-sm text-slate-700 line-clamp-1">{result.male?.name}</p>
                             </div>
-                            <div className="bg-black/50 border border-white/5 rounded-2xl p-4 text-center">
-                                <p className="text-neutral-500 text-[10px] uppercase font-bold tracking-widest mb-3">Femenina</p>
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+                                <p className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-3">Femenina</p>
                                 <img src={result.female?.image} alt={result.female?.name} className="w-16 h-16 rounded-full object-cover mx-auto mb-2 opacity-80" />
-                                <p className="font-medium text-sm text-neutral-300 line-clamp-1">{result.female?.name}</p>
+                                <p className="font-medium text-sm text-slate-700 line-clamp-1">{result.female?.name}</p>
                             </div>
                         </div>
 
                         <button
                             onClick={handleDeliver}
                             disabled={result.delivered || loading}
-                            className="w-full bg-green-500 hover:bg-green-400 disabled:bg-neutral-800 disabled:text-neutral-600 disabled:cursor-not-allowed text-black font-bold py-4 rounded-xl shadow-lg transition-colors text-lg flex justify-center items-center gap-2"
+                            className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed text-slate-950 font-bold py-4 rounded-xl shadow-lg transition-colors text-lg flex justify-center items-center gap-2"
                         >
                             {result.delivered ? (
                                 <>
@@ -135,7 +135,7 @@ export default function AdminPage() {
                                 "Marcar como Entregado"
                             )}
                         </button>
-                        <p className="text-center text-neutral-600 text-xs mt-4">
+                        <p className="text-center text-slate-500 text-xs mt-4">
                             {new Date(result.createdAt).toLocaleString()}
                         </p>
                     </div>
