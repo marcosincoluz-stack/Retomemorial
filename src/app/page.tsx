@@ -160,7 +160,7 @@ export default function OnboardingPage() {
   const [[page, direction], setPage] = useState([1, 0]);
   const router = useRouter();
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const touchMoveYRef = useRef<number | null>(null);
+  const touchMoveRef = useRef<{ x: number; y: number } | null>(null);
   const spinBoostRef = useRef(0);
   const prefersReducedMotion = useReducedMotion();
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -198,9 +198,9 @@ export default function OnboardingPage() {
     if (page !== 1) return;
     const intervalId = window.setInterval(() => {
       const boost = spinBoostRef.current;
-      const nextSpin = 0.24 + boost;
+      const nextSpin = 0.22 + boost;
       setHeroSpin((prev) => (prev + nextSpin + 360) % 360);
-      spinBoostRef.current = boost * 0.88;
+      spinBoostRef.current = boost * 0.9;
     }, 33);
     return () => window.clearInterval(intervalId);
   }, [page]);
@@ -222,8 +222,8 @@ export default function OnboardingPage() {
 
   const addSpinImpulse = (delta: number) => {
     if (page !== 1) return;
-    const next = spinBoostRef.current + delta * 0.003;
-    spinBoostRef.current = Math.max(-1.8, Math.min(1.8, next));
+    const next = spinBoostRef.current + delta * 0.009;
+    spinBoostRef.current = Math.max(-6, Math.min(6, next));
   };
 
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -233,32 +233,39 @@ export default function OnboardingPage() {
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     const touch = event.changedTouches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-    touchMoveYRef.current = touch.clientY;
+    touchMoveRef.current = { x: touch.clientX, y: touch.clientY };
   };
 
   const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
     if (page !== 1) return;
+
+    event.preventDefault();
     const touch = event.changedTouches[0];
-    if (touchMoveYRef.current == null) {
-      touchMoveYRef.current = touch.clientY;
+    if (!touchMoveRef.current) {
+      touchMoveRef.current = { x: touch.clientX, y: touch.clientY };
       return;
     }
-    const deltaFinger = touch.clientY - touchMoveYRef.current;
-    touchMoveYRef.current = touch.clientY;
-    // Invert finger delta so it behaves like native content scroll direction.
-    addSpinImpulse(-deltaFinger);
+
+    const deltaX = touch.clientX - touchMoveRef.current.x;
+    const deltaY = touch.clientY - touchMoveRef.current.y;
+    touchMoveRef.current = { x: touch.clientX, y: touch.clientY };
+
+    // Support vertical and horizontal drag so mobile users can accelerate naturally.
+    const dragDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : -deltaY;
+    setHeroSpin((prev) => (prev + dragDelta * 0.3 + 360) % 360);
+    addSpinImpulse(dragDelta * 1.12);
   };
 
   const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
     if (!touchStartRef.current) {
-      touchMoveYRef.current = null;
+      touchMoveRef.current = null;
       return;
     }
 
     // Step 1 reserves gesture control for the card carousel/spin.
     // Wizard pagination continues via the CTA button.
     if (page === 1) {
-      touchMoveYRef.current = null;
+      touchMoveRef.current = null;
       touchStartRef.current = null;
       return;
     }
@@ -269,7 +276,7 @@ export default function OnboardingPage() {
 
     // Trigger swipe only when horizontal intent is clear, so vertical scroll stays fluid.
     if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
-      touchMoveYRef.current = null;
+      touchMoveRef.current = null;
       touchStartRef.current = null;
       return;
     }
@@ -279,7 +286,7 @@ export default function OnboardingPage() {
     } else if (deltaX > 0 && page > 1) {
       paginate(-1);
     }
-    touchMoveYRef.current = null;
+    touchMoveRef.current = null;
     touchStartRef.current = null;
   };
 
@@ -425,7 +432,7 @@ export default function OnboardingPage() {
                 <div className="mb-8 text-center pointer-events-none">
                   <h1 className="text-4xl font-extrabold mb-4 tracking-tight text-slate-900 uppercase italic">Instrucciones</h1>
                   <p className="text-slate-600 text-[16px] leading-relaxed px-4">
-                    Sigue estos pasos para participar y ganar en el evento deportivo.
+                    Haz tu equipo con atletas femeninos y masculinos, elige a los ganadores y gana premios.
                   </p>
                 </div>
 
@@ -435,8 +442,8 @@ export default function OnboardingPage() {
                       <span className="material-symbols-outlined text-[28px] font-light">groups</span>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Elige atletas</h3>
-                      <p className="text-[14px] text-slate-600 leading-snug">Selecciona 1 masculino y 1 femenino por cada prueba.</p>
+                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Haz tu equipo</h3>
+                      <p className="text-[14px] text-slate-600 leading-snug">Selecciona atletas femeninos y masculinos para cada prueba.</p>
                     </div>
                   </div>
 
@@ -445,8 +452,8 @@ export default function OnboardingPage() {
                       <span className="material-symbols-outlined text-[28px] font-light">sprint</span>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Supera la marca</h3>
-                      <p className="text-[14px] text-slate-600 leading-snug">Tus atletas elegidos deben superar las marcas establecidas.</p>
+                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Elige ganadores</h3>
+                      <p className="text-[14px] text-slate-600 leading-snug">Escoge quién ganará cada prueba del reto.</p>
                     </div>
                   </div>
 
@@ -456,7 +463,7 @@ export default function OnboardingPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Gana premios</h3>
-                      <p className="text-[14px] text-slate-600 leading-snug">Acumula aciertos y llévate las recompensas del reto.</p>
+                      <p className="text-[14px] text-slate-600 leading-snug">Premio si algún atleta de tu equipo supera la marca del reto, y premio gordo para quien acierte más ganadores.</p>
                     </div>
                   </div>
                 </div>
@@ -494,7 +501,7 @@ export default function OnboardingPage() {
 
               <footer className={ctaFooterClass}>
                 <button
-                  onClick={() => router.push("/play")}
+                  onClick={() => router.push("/event/disco")}
                   className="bg-slate-900 text-white font-semibold py-4 px-12 rounded-full text-[17px] hover:bg-slate-800 transition-all active:scale-95 duration-200 shadow-[0_4px_20_rgba(15,23,42,0.2)] w-full max-w-[280px] mx-auto flex items-center justify-center"
                 >
                   Start

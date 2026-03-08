@@ -9,6 +9,7 @@ module.exports = {
 		"./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
 		"./src/components/**/*.{js,ts,jsx,tsx,mdx}",
 		"./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+		"./src/registry/**/*.{js,ts,jsx,tsx,mdx}",
 	],
 	darkMode: ["class", "class"],
 	theme: {
@@ -64,7 +65,8 @@ module.exports = {
 				'meteor-effect': 'meteor 5s linear infinite',
 				'shimmer-slide': 'shimmer-slide button-shine-interval linear infinite',
 				'spin-around': 'spin-around calc(var(--speed) * 2) infinite linear',
-				slide: 'slide 3s linear infinite'
+				slide: 'slide 3s linear infinite',
+				shine: 'shine var(--duration) infinite linear'
 			},
 			keyframes: {
 				meteor: {
@@ -96,6 +98,14 @@ module.exports = {
 				slide: {
 					to: {
 						transform: 'translate(calc(100cqw - 100%), 0)'
+					}
+				},
+				shine: {
+					'0%': {
+						backgroundPosition: '0% 0%'
+					},
+					'100%': {
+						backgroundPosition: '200% 200%'
 					}
 				}
 			}

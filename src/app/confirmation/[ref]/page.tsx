@@ -146,7 +146,9 @@ export default function ConfirmationPage() {
 
                         {/* Athlete Grid (6 Athletes) */}
                         <div className="w-full bg-slate-100/70 rounded-3xl p-4 border border-slate-200 mb-8">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Tu Selección (6 Cromos)</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">
+                                Tu Selección ({data.fullTeam.length} {data.fullTeam.length === 1 ? "Cromo" : "Cromos"})
+                            </p>
                             <div className="grid grid-cols-3 gap-3">
                                 {data.fullTeam.map((athlete) => (
                                     <div key={athlete.id} className="flex flex-col items-center">

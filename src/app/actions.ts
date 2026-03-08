@@ -50,22 +50,35 @@ let mockParticipations: any[] = [];
 export async function submitFullParticipation(
     selections: Record<string, { maleId: string | null; femaleId: string | null }>
 ): Promise<FullParticipationResult> {
-    // Check if all are selected (3 events * 2 athletes = 6)
-    const allSelected = EVENTS.every(event =>
-        selections[event.slug]?.maleId && selections[event.slug]?.femaleId
-    );
+    // Allow partial participation: at least one slot must be selected.
+    const selectedEventSlugs = EVENTS.filter((event) => {
+        const eventSelection = selections[event.slug];
+        return Boolean(eventSelection?.maleId || eventSelection?.femaleId);
+    }).map((event) => event.slug);
 
-    if (!allSelected) {
-        return { success: false, message: "Debes seleccionar todos los atletas." };
+    if (selectedEventSlugs.length === 0) {
+        return { success: false, message: "Debes seleccionar al menos un atleta." };
     }
 
-    // Check time for all events
-    for (const event of EVENTS) {
+    // Validate time only for events where the user picked at least one athlete.
+    for (const eventSlug of selectedEventSlugs) {
+        const event = EVENTS.find((item) => item.slug === eventSlug);
+        if (!event) continue;
         const validation = await validateAndTimeCheck(event.slug);
         if (!validation.allowed) {
             return { success: false, message: `El evento ${event.name} ha cerrado.` };
         }
     }
+
+    // Normalize payload to known event keys for downstream consumers.
+    const normalizedSelections = EVENTS.reduce((acc, event) => {
+        const current = selections[event.slug] ?? { maleId: null, femaleId: null };
+        acc[event.slug] = {
+            maleId: current.maleId ?? null,
+            femaleId: current.femaleId ?? null,
+        };
+        return acc;
+    }, {} as Record<string, { maleId: string | null; femaleId: string | null }>);
 
     // Generate Unified Reference
     const seq = Object.values(sequenceCounter).reduce((a, b) => a + b, 0);
@@ -74,12 +87,12 @@ export async function submitFullParticipation(
     // Save to Mock DB
     mockParticipations.push({
         reference: ref,
-        selections,
+        selections: normalizedSelections,
         delivered: false,
         createdAt: new Date().toISOString()
     });
 
-    console.log(`Saving full participation: ${ref}`, selections);
+    console.log(`Saving full participation: ${ref}`, normalizedSelections);
 
     return { success: true, reference: ref };
 }

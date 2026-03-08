@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { EVENTS, ATHLETES } from "@/lib/data";
 import { submitFullParticipation } from "@/app/actions";
 import { MultiStepLoader } from "@/components/ui/multi-step-loader";
+import { ShineBorder } from "@/registry/magicui/shine-border";
+import { Highlighter } from "@/registry/magicui/highlighter";
 import { motion, AnimatePresence } from "framer-motion";
 import { MoveLeft, Plus, Check, Lock, Search, Medal } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -137,6 +139,7 @@ export default function UnifiedSelectionPage() {
     const [selectionBurst, setSelectionBurst] = useState<SelectionBurst | null>(null);
     const [previewAthlete, setPreviewAthlete] = useState<AthletePreviewData | null>(null);
     const [showCreateTeamHint, setShowCreateTeamHint] = useState(true);
+    const [showHintSubtitleUnderline, setShowHintSubtitleUnderline] = useState(false);
 
     const activeEvent = EVENTS.find(e => e.slug === activeEventSlug) || EVENTS[0];
     const eventAthletes = ATHLETES[activeEventSlug as keyof typeof ATHLETES];
@@ -159,9 +162,24 @@ export default function UnifiedSelectionPage() {
     }, [activeEventSlug, genderFilter]);
 
     useEffect(() => {
-        const timeoutId = window.setTimeout(() => setShowCreateTeamHint(false), 2800);
+        const timeoutId = window.setTimeout(() => setShowCreateTeamHint(false), 3500);
         return () => window.clearTimeout(timeoutId);
     }, []);
+
+    useEffect(() => {
+        if (!showCreateTeamHint) {
+            setShowHintSubtitleUnderline(false);
+            return;
+        }
+
+        const subtitleDelayId = window.setTimeout(() => {
+            setShowHintSubtitleUnderline(true);
+        }, 1320);
+
+        return () => {
+            window.clearTimeout(subtitleDelayId);
+        };
+    }, [showCreateTeamHint]);
 
     const moveToNextSlot = (eventSlug: string, gender: "male" | "female") => {
         if (gender === "male") {
@@ -239,9 +257,13 @@ export default function UnifiedSelectionPage() {
         }
     };
 
-    const isComplete = useMemo(() => {
-        return EVENTS.every(e => selections[e.slug].maleId && selections[e.slug].femaleId);
+    const selectedSlotsCount = useMemo(() => {
+        return EVENTS.reduce((acc, event) => {
+            const current = selections[event.slug];
+            return acc + (current.maleId ? 1 : 0) + (current.femaleId ? 1 : 0);
+        }, 0);
     }, [selections]);
+    const hasAnySelection = selectedSlotsCount > 0;
 
     const isPreviewSelected = useMemo(() => {
         if (!previewAthlete) return false;
@@ -261,8 +283,35 @@ export default function UnifiedSelectionPage() {
         handleToggleAthlete(athleteId);
     };
 
+    const openAthletePreview = (athlete: {
+        id: string;
+        name: string;
+        image: string;
+        mark?: number;
+    }) => {
+        setPreviewAthlete({
+            id: athlete.id,
+            name: athlete.name,
+            image: athlete.image,
+            mark: athlete.mark ?? 0,
+            bio: ATHLETE_BIOS[athlete.id] ?? `Atleta especialista en ${activeEvent.name.toLowerCase()} con enfoque competitivo y regularidad en grandes eventos.`,
+            highlights: ATHLETE_HIGHLIGHTS[athlete.id] ?? [
+                { tier: "gold", label: "Rendimiento consistente en temporada" },
+                { tier: "silver", label: "Competidor habitual en pruebas oficiales" },
+                { tier: "bronze", label: `Mejor marca registrada: ${(athlete.mark ?? 0).toFixed(2)} m` },
+            ],
+            eventName: activeEvent.name,
+            genderKey: genderFilter,
+            genderLabel: genderFilter === "male" ? "M" : "F",
+        });
+    };
+
     const handleConfirm = async () => {
-        if (!isComplete) return;
+        if (!hasAnySelection) {
+            setErrorMsg("Selecciona al menos un atleta para confirmar.");
+            return;
+        }
+        setErrorMsg(null);
         setLoading(true);
     };
 
@@ -303,23 +352,42 @@ export default function UnifiedSelectionPage() {
                                 opacity: [0, 1, 1, 0],
                             }}
                             transition={{
-                                duration: 2.5,
+                                duration: 3.2,
                                 ease: "easeInOut",
-                                times: [0, 0.14, 0.84, 1],
+                                times: [0, 0.12, 0.88, 1],
                             }}
                             className="relative w-full overflow-hidden border-y border-slate-300/70 bg-white/95 py-3 backdrop-blur-[2px]"
                         >
                             <motion.div
                                 initial={{ x: "105%" }}
                                 animate={{ x: ["105%", "0%", "0%", "-105%"] }}
-                                transition={{ duration: 3.2, ease: "easeInOut", times: [0, 0.26, 0.64, 1] }}
-                                className="mx-auto w-[92vw] max-w-[520px] flex flex-col items-center justify-center text-center gap-0.5"
+                                transition={{ duration: 3.8, ease: "easeInOut", times: [0, 0.23, 0.72, 1] }}
+                                className="mx-auto w-[92vw] max-w-[520px] flex flex-col items-center justify-center text-center gap-1 py-1"
                             >
-                                <span className="text-[20px] sm:text-[32px] font-black tracking-[0.08em] uppercase text-slate-900 leading-none">
+                                <div className="pb-1 text-[20px] sm:text-[32px] font-black tracking-[0.08em] uppercase text-slate-900 leading-[1.05]">
                                     CREA TU EQUIPO
-                                </span>
+                                </div>
                                 <span className="text-[11px] sm:text-[14px] font-semibold tracking-[0.08em] uppercase text-slate-700 leading-tight">
-                                    Selecciona 1 atleta por hueco
+                                    Selecciona{" "}
+                                    <span className="relative inline-block align-baseline">
+                                        <span className="relative z-10 inline-block">1 atleta</span>
+                                        {showHintSubtitleUnderline && (
+                                            <span className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+                                                <Highlighter
+                                                    action="underline"
+                                                    color="#FF9800"
+                                                    strokeWidth={1.8}
+                                                    animationDuration={650}
+                                                    iterations={1}
+                                                    padding={1}
+                                                    multiline={false}
+                                                >
+                                                    <span className="opacity-0 select-none">1 atleta</span>
+                                                </Highlighter>
+                                            </span>
+                                        )}
+                                    </span>{" "}
+                                    por hueco
                                 </span>
                             </motion.div>
                         </motion.div>
@@ -329,7 +397,7 @@ export default function UnifiedSelectionPage() {
 
             <div className="relative h-full flex flex-col">
                 {/* Header - Centered Layout */}
-                <header className="sticky top-0 z-50 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.25rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-1.5 sm:pb-3 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2">
+                <header className="sticky top-0 z-50 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.25rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-0 sm:pb-1.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2">
                     <button
                         onClick={() => router.back()}
                         className="size-9 sm:size-10 flex items-center justify-center rounded-full bg-white text-slate-800 transition-all hover:bg-slate-100 border border-slate-200 active:scale-95 shadow-sm"
@@ -354,13 +422,13 @@ export default function UnifiedSelectionPage() {
                 </header>
 
                 {/* Team Grid - 6 independent stickers */}
-                <section className="px-4 sm:px-6 my-1.5 sm:my-4 relative z-10">
+                <section className="px-4 sm:px-6 mt-0 sm:mt-1 mb-1 sm:mb-2.5 relative z-10">
                     <div className="relative z-10 grid grid-cols-3 gap-1.5 sm:gap-3 mb-1.5 sm:mb-2">
                         {EVENTS.map((event) => (
                             <span
                                 key={event.slug}
                                 className={cn(
-                                    "text-[8px] sm:text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.25em] text-center transition-colors duration-300",
+                                    "text-[11px] sm:text-[13px] font-black uppercase tracking-[0.14em] sm:tracking-[0.22em] text-center transition-colors duration-300",
                                     activeEventSlug === event.slug ? "text-slate-900" : "text-slate-400"
                                 )}
                             >
@@ -369,7 +437,7 @@ export default function UnifiedSelectionPage() {
                         ))}
                     </div>
 
-                    <div className="relative z-10 grid grid-cols-3 gap-1.5 sm:gap-3 [perspective:1200px]">
+                    <div className="relative z-10 grid grid-cols-3 gap-2 sm:gap-3.5 [perspective:1200px]">
                         {EVENTS.map((event, index) => (
                             <AthleteSlot
                                 key={`${event.slug}-male`}
@@ -456,28 +524,18 @@ export default function UnifiedSelectionPage() {
                             return (
                                 <div
                                     key={`${genderFilter}-${athlete.id}`}
+                                    onClick={() => openAthletePreview(athlete)}
                                     className={cn(
-                                        "p-2 sm:p-2.5 rounded-[22px] sm:rounded-[28px] flex items-center gap-2.5 sm:gap-3 bg-white/95 border transition-all duration-300 group shadow-[0_10px_24px_rgba(15,23,42,0.07)]",
+                                        "p-2 sm:p-2.5 rounded-[22px] sm:rounded-[28px] flex items-center gap-2.5 sm:gap-3 bg-white/95 border transition-all duration-300 group shadow-[0_10px_24px_rgba(15,23,42,0.07)] cursor-pointer",
                                         isSelected ? "border-slate-300 bg-white" : "border-slate-200"
                                     )}
                                 >
                                     <button
                                         type="button"
-                                        onClick={() => setPreviewAthlete({
-                                            id: athlete.id,
-                                            name: athlete.name,
-                                            image: athlete.image,
-                                            mark: athlete.mark ?? 0,
-                                            bio: ATHLETE_BIOS[athlete.id] ?? `Atleta especialista en ${activeEvent.name.toLowerCase()} con enfoque competitivo y regularidad en grandes eventos.`,
-                                            highlights: ATHLETE_HIGHLIGHTS[athlete.id] ?? [
-                                                { tier: "gold", label: "Rendimiento consistente en temporada" },
-                                                { tier: "silver", label: "Competidor habitual en pruebas oficiales" },
-                                                { tier: "bronze", label: `Mejor marca registrada: ${(athlete.mark ?? 0).toFixed(2)} m` },
-                                            ],
-                                            eventName: activeEvent.name,
-                                            genderKey: genderFilter,
-                                            genderLabel: genderFilter === "male" ? "M" : "F",
-                                        })}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            openAthletePreview(athlete);
+                                        }}
                                         className="relative p-0.5 rounded-[18px] border border-slate-200 group-hover:border-slate-300 transition-colors"
                                     >
                                         <img src={athlete.image} alt={athlete.name} className="size-12 sm:size-14 rounded-[12px] sm:rounded-[14px] object-cover saturate-[1.12] transition-all duration-500" />
@@ -485,12 +543,16 @@ export default function UnifiedSelectionPage() {
                                     <div className="flex-1 px-1">
                                         <p className="font-bold text-[15px] sm:text-base leading-tight tracking-tight text-slate-900">{athlete.name}</p>
                                         <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.12em] mt-1 flex items-center gap-1">
-                                            {activeEvent.name} <span className="size-1 rounded-full bg-slate-300" /> {athlete.mark}m
+                                            {activeEvent.name} <span className="size-1 rounded-full bg-slate-300" />{" "}
+                                            <span className="text-[12px] sm:text-[13px] text-slate-700 tracking-[0.02em]">{athlete.mark}m</span>
                                         </p>
                                     </div>
                                     <button
                                         disabled={Boolean(selectionBurst)}
-                                        onClick={() => handleToggleAthlete(athlete.id)}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleToggleAthlete(athlete.id);
+                                        }}
                                         className={cn(
                                             "size-9 sm:size-10 rounded-full flex items-center justify-center transition-all duration-250 active:scale-95",
                                             selectionBurst && "pointer-events-none opacity-60",
@@ -519,17 +581,17 @@ export default function UnifiedSelectionPage() {
                         <p className="mb-3 text-center text-xs font-medium text-red-500">{errorMsg}</p>
                     )}
                     <button
-                        disabled={!isComplete}
+                        disabled={!hasAnySelection}
                         onClick={handleConfirm}
                         className={cn(
-                            "w-full h-14 sm:h-14 rounded-[36px] font-black text-[15px] sm:text-[16px] uppercase tracking-[0.2em] sm:tracking-widest flex items-center justify-center gap-3 transition-all duration-500",
-                            isComplete
+                            "w-full h-14 sm:h-14 rounded-[36px] font-black text-[15px] sm:text-[16px] uppercase tracking-[0.2em] sm:tracking-widest flex items-center justify-center gap-3 transition-all duration-500 translate-y-[6px]",
+                            hasAnySelection
                                 ? "bg-slate-900 text-white active:scale-[0.98] opacity-100"
                                 : "bg-slate-300 text-slate-500 cursor-not-allowed opacity-80"
                         )}
                     >
-                        Confirmar Todo
-                        {!isComplete && <Lock className="w-4 h-4 mb-0.5" />}
+                        Confirmar Equipo
+                        {!hasAnySelection && <Lock className="w-4 h-4 mb-0.5" />}
                     </button>
                 </div>
             </div>
@@ -711,7 +773,7 @@ export default function UnifiedSelectionPage() {
                         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[120%] h-[220px] sm:h-[280px] bg-violet-300/30 blur-[92px] rounded-full mix-blend-multiply pointer-events-none" />
 
                         <div className="relative h-full overflow-y-auto ios-scroll pb-28">
-                            <header className="sticky top-0 z-40 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-3 flex items-center justify-between bg-transparent">
+                            <header className="absolute top-0 inset-x-0 z-40 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-3 flex items-center justify-between bg-transparent">
                                 <button
                                     type="button"
                                     onClick={() => setPreviewAthlete(null)}
@@ -722,7 +784,7 @@ export default function UnifiedSelectionPage() {
                                 <div className="size-9 sm:size-10" />
                             </header>
 
-                            <section className="-mt-8 sm:-mt-12">
+                            <section>
                                 <div className="w-full h-[40vh] min-h-[250px] max-h-[350px] sm:h-auto sm:aspect-[4/5] relative">
                                     <img
                                         src={previewAthlete.image}
@@ -848,12 +910,22 @@ function AthleteSlot({
                 athlete && "team-sticker",
                 athlete && floatClass,
                 isActive
-                    ? "border-slate-900 ring-1 ring-slate-300 z-20"
+                    ? athlete
+                        ? "border-slate-900 ring-1 ring-slate-300 z-20"
+                        : "border-transparent bg-white/45 backdrop-blur-xl backdrop-saturate-150 ring-0 z-20"
                     : athlete
                         ? "border-slate-300 bg-white/85 z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
                         : "border-slate-300/90 border-dashed bg-white/45 backdrop-blur-xl backdrop-saturate-150 z-10"
             )}
         >
+            {!athlete && isActive && (
+                <ShineBorder
+                    duration={6}
+                    borderWidth={1.8}
+                    shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+                />
+            )}
+
             <AnimatePresence mode="wait">
                 {athlete ? (
                     <motion.div
