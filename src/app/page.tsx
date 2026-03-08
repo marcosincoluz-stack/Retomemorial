@@ -4,7 +4,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { ATHLETES } from "@/lib/data";
+import { getExistingParticipationForDevice } from "@/app/actions";
 import { CometCard } from "@/components/ui/comet-card";
+import { ProgressiveImage } from "@/components/ui/progressive-image";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 
 const AnimatedBackground = ({ lowMotion }: { lowMotion: boolean }) => {
   if (lowMotion) {
@@ -65,7 +68,14 @@ const AnimatedBackground = ({ lowMotion }: { lowMotion: boolean }) => {
 };
 
 const ProgressBar = ({ step }: { step: number }) => (
-  <div className="flex space-x-2 mx-auto">
+  <div
+    className="flex space-x-2 mx-auto"
+    role="progressbar"
+    aria-label="Progreso del onboarding"
+    aria-valuemin={1}
+    aria-valuemax={3}
+    aria-valuenow={step}
+  >
     {[1, 2, 3].map((s) => (
       <div
         key={s}
@@ -148,7 +158,28 @@ type StickerCard = {
   gender: "M" | "F";
 };
 
-const STICKER_CARDS: StickerCard[] = ATHLETES.disco.male.map((athlete) => ({
+type DeviceParticipationSummary = {
+  reference: string;
+  selectedSlotsCount: number;
+  createdAt?: string;
+};
+
+const EVENT_LABELS: Record<keyof typeof ATHLETES, string> = {
+  disco: "Disco",
+  jabalina: "Jabalina",
+  longitud: "Longitud",
+};
+
+const shuffleArray = <T,>(values: T[]) => {
+  const copy = [...values];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+};
+
+const BASE_STICKER_CARDS: StickerCard[] = ATHLETES.disco.male.map((athlete) => ({
   id: athlete.id,
   name: athlete.name,
   image: athlete.image,
@@ -156,15 +187,43 @@ const STICKER_CARDS: StickerCard[] = ATHLETES.disco.male.map((athlete) => ({
   gender: "M",
 }));
 
+const RANDOM_STICKER_POOL: StickerCard[] = (
+  Object.entries(ATHLETES) as Array<
+    [keyof typeof ATHLETES, (typeof ATHLETES)[keyof typeof ATHLETES]]
+  >
+).flatMap(([eventSlug, eventAthletes]) =>
+  (["male", "female"] as const).flatMap((genderKey) =>
+    eventAthletes[genderKey]
+      .filter(
+        (athlete) =>
+          typeof athlete.image === "string" && athlete.image.startsWith("/")
+      )
+      .map((athlete) => ({
+        id: athlete.id,
+        name: athlete.name,
+        image: athlete.image,
+        event: EVENT_LABELS[eventSlug],
+        gender: genderKey === "male" ? "M" : "F",
+      }))
+  )
+);
+
 export default function OnboardingPage() {
   const [[page, direction], setPage] = useState([1, 0]);
   const router = useRouter();
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const touchMoveRef = useRef<{ x: number; y: number } | null>(null);
   const spinBoostRef = useRef(0);
+  const randomQueueRef = useRef<StickerCard[]>([]);
+  const previousActiveIndexRef = useRef<number | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [heroSpin, setHeroSpin] = useState(0);
+  const [stickerCards, setStickerCards] =
+    useState<StickerCard[]>(BASE_STICKER_CARDS);
+  const [checkingDeviceLock, setCheckingDeviceLock] = useState(true);
+  const [deviceParticipation, setDeviceParticipation] =
+    useState<DeviceParticipationSummary | null>(null);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 900px), (pointer: coarse)");
@@ -173,6 +232,42 @@ export default function OnboardingPage() {
 
     mediaQuery.addEventListener("change", syncViewport);
     return () => mediaQuery.removeEventListener("change", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const runDeviceCheck = async () => {
+      try {
+        const deviceId = await getOrCreateDeviceId();
+        const result = await getExistingParticipationForDevice(deviceId ?? undefined);
+        if (cancelled) return;
+
+        if (result.found && result.reference) {
+          setDeviceParticipation({
+            reference: result.reference,
+            selectedSlotsCount: result.selectedSlotsCount ?? 0,
+            createdAt: result.createdAt,
+          });
+        }
+      } catch {
+        // If lookup fails, keep onboarding available.
+      } finally {
+        if (!cancelled) setCheckingDeviceLock(false);
+      }
+    };
+
+    void runDeviceCheck();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const usedIds = new Set(BASE_STICKER_CARDS.map((card) => card.id));
+    randomQueueRef.current = shuffleArray(
+      RANDOM_STICKER_POOL.filter((card) => !usedIds.has(card.id))
+    );
   }, []);
 
   useEffect(() => {
@@ -198,18 +293,66 @@ export default function OnboardingPage() {
     if (page !== 1) return;
     const intervalId = window.setInterval(() => {
       const boost = spinBoostRef.current;
-      const nextSpin = 0.22 + boost;
+      const nextSpin = 0.2 + boost;
       setHeroSpin((prev) => (prev + nextSpin + 360) % 360);
-      spinBoostRef.current = boost * 0.9;
+      spinBoostRef.current = boost * 0.915;
     }, 33);
     return () => window.clearInterval(intervalId);
   }, [page]);
 
   const lowMotion = prefersReducedMotion || isMobileViewport;
   const activeStickerIndex = (() => {
-    const step = 360 / STICKER_CARDS.length;
-    return Math.round(((360 - heroSpin) % 360) / step) % STICKER_CARDS.length;
+    const step = 360 / stickerCards.length;
+    return Math.round(((360 - heroSpin) % 360) / step) % stickerCards.length;
   })();
+
+  const getNextRandomCard = (excludeIds: Set<string>) => {
+    if (!RANDOM_STICKER_POOL.length) return null;
+
+    if (randomQueueRef.current.length === 0) {
+      const available = RANDOM_STICKER_POOL.filter(
+        (card) => !excludeIds.has(card.id)
+      );
+      randomQueueRef.current = shuffleArray(
+        available.length ? available : RANDOM_STICKER_POOL
+      );
+    }
+
+    for (let i = 0; i < randomQueueRef.current.length; i += 1) {
+      const candidate = randomQueueRef.current.shift();
+      if (!candidate) break;
+      if (!excludeIds.has(candidate.id)) return candidate;
+      randomQueueRef.current.push(candidate);
+    }
+
+    return null;
+  };
+
+  useEffect(() => {
+    if (page !== 1 || stickerCards.length < 3) return;
+
+    const previousIndex = previousActiveIndexRef.current;
+    previousActiveIndexRef.current = activeStickerIndex;
+
+    if (previousIndex == null || previousIndex === activeStickerIndex) return;
+
+    const length = stickerCards.length;
+    const forwardDelta = (activeStickerIndex - previousIndex + length) % length;
+    const movingForward = forwardDelta === 1;
+    const replaceIndex = movingForward
+      ? (activeStickerIndex + 2) % length
+      : (activeStickerIndex + length - 2) % length;
+
+    setStickerCards((prev) => {
+      const next = [...prev];
+      const usedIds = new Set(next.map((card) => card.id));
+      usedIds.delete(next[replaceIndex].id);
+      const randomCard = getNextRandomCard(usedIds);
+      if (!randomCard) return prev;
+      next[replaceIndex] = randomCard;
+      return next;
+    });
+  }, [activeStickerIndex, page, stickerCards.length]);
 
   const paginate = (newDirection: number) => {
     const nextStep = page + newDirection;
@@ -222,7 +365,7 @@ export default function OnboardingPage() {
 
   const addSpinImpulse = (delta: number) => {
     if (page !== 1) return;
-    const next = spinBoostRef.current + delta * 0.009;
+    const next = spinBoostRef.current + delta * 0.0078;
     spinBoostRef.current = Math.max(-6, Math.min(6, next));
   };
 
@@ -252,8 +395,8 @@ export default function OnboardingPage() {
 
     // Support vertical and horizontal drag so mobile users can accelerate naturally.
     const dragDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : -deltaY;
-    setHeroSpin((prev) => (prev + dragDelta * 0.3 + 360) % 360);
-    addSpinImpulse(dragDelta * 1.12);
+    setHeroSpin((prev) => (prev + dragDelta * 0.24 + 360) % 360);
+    addSpinImpulse(dragDelta * 0.95);
   };
 
   const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -290,6 +433,71 @@ export default function OnboardingPage() {
     touchStartRef.current = null;
   };
 
+  if (checkingDeviceLock) {
+    return (
+      <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50">
+        <AnimatedBackground lowMotion={lowMotion} />
+        <div className="relative z-10 h-full max-w-md mx-auto px-6 flex flex-col items-center justify-center text-center">
+          <div className="h-8 w-8 rounded-full border-2 border-slate-300 border-t-slate-900 animate-spin" />
+          <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-slate-600">
+            Verificando dispositivo
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (deviceParticipation) {
+    return (
+      <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50">
+        <AnimatedBackground lowMotion={lowMotion} />
+        <div className="relative z-10 h-full max-w-md mx-auto px-6 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)] flex flex-col">
+          <div className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_20px_60px_rgba(15,23,42,0.1)] p-6 mt-auto mb-auto">
+            <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
+              Apuesta ya registrada
+            </p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900">
+              Ya participaste con este dispositivo
+            </h1>
+            <p className="mt-3 text-sm text-slate-600 leading-relaxed">
+              Solo se permite una apuesta por dispositivo.
+            </p>
+
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                Referencia
+              </p>
+              <p className="mt-1 font-mono text-lg font-black text-slate-900 tracking-[0.08em]">
+                {deviceParticipation.reference}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Huecos seleccionados:{" "}
+                <span className="font-bold text-slate-700">
+                  {deviceParticipation.selectedSlotsCount}/6
+                </span>
+              </p>
+              {deviceParticipation.createdAt && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Registrada: {new Date(deviceParticipation.createdAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            <button
+              type="button"
+              onClick={() => router.push(`/confirmation/${deviceParticipation.reference}`)}
+              className="h-12 rounded-full bg-slate-900 text-white font-semibold text-base active:scale-[0.98]"
+            >
+              Ver mi ticket
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden overscroll-none font-sans selection:bg-slate-200 touch-pan-y">
       <AnimatedBackground lowMotion={lowMotion} />
@@ -322,9 +530,10 @@ export default function OnboardingPage() {
                 <div className="flex justify-end w-full">
                   <button
                     onClick={skip}
+                    aria-label="Saltar onboarding"
                     className="text-[15px] font-medium text-slate-500 hover:text-slate-800 transition-colors py-2 px-4 rounded-full active:bg-slate-200/70"
                   >
-                    Skip
+                    Saltar
                   </button>
                 </div>
               </header>
@@ -338,8 +547,8 @@ export default function OnboardingPage() {
 
                 <div className="mt-2 flex-1 min-h-0 flex flex-col justify-center">
                   <div className="relative h-[380px] sm:h-[420px] w-full max-w-md mx-auto [perspective:1300px] [transform-style:preserve-3d]">
-                    {STICKER_CARDS.map((card, index) => {
-                      const angleDeg = heroSpin + (360 / STICKER_CARDS.length) * index;
+                    {stickerCards.map((card, index) => {
+                      const angleDeg = heroSpin + (360 / stickerCards.length) * index;
                       const angleRad = (angleDeg * Math.PI) / 180;
                       const phase = heroSpin * 0.06 + index * 1.41;
                       const x = Math.sin(angleRad) * 132 + Math.sin(phase * 1.2) * 7;
@@ -372,11 +581,12 @@ export default function OnboardingPage() {
                             >
                               <div className="mx-1 flex-1">
                                 <div className="relative mt-1.5 aspect-[3/4] w-full">
-                                  <img
-                                    loading="lazy"
+                                  <ProgressiveImage
                                     className="absolute inset-0 h-full w-full rounded-[14px] bg-[#000000] object-cover contrast-[0.9] saturate-[1.05]"
                                     alt={card.name}
                                     src={card.image}
+                                    wrapperClassName="absolute inset-0 rounded-[14px]"
+                                    skeletonClassName="bg-slate-300/60"
                                     style={{
                                       boxShadow: "rgba(0, 0, 0, 0.05) 0px 5px 6px 0px",
                                       opacity: 1,
@@ -402,9 +612,14 @@ export default function OnboardingPage() {
                   </div>
 
                   <div className="mt-3 text-center">
-                    <p className="text-[11px] uppercase tracking-[0.22em] font-black text-slate-500">Disco · Masculino</p>
+                    <p className="text-[11px] uppercase tracking-[0.22em] font-black text-slate-500">
+                      {stickerCards[activeStickerIndex]?.event ?? "Disco"} ·{" "}
+                      {stickerCards[activeStickerIndex]?.gender === "F"
+                        ? "Femenina"
+                        : "Masculino"}
+                    </p>
                     <p className="mt-1 text-sm font-bold text-slate-800">
-                      {STICKER_CARDS[activeStickerIndex]?.name}
+                      {stickerCards[activeStickerIndex]?.name}
                     </p>
                   </div>
                 </div>
@@ -413,6 +628,7 @@ export default function OnboardingPage() {
               <footer className={ctaFooterClass}>
                 <button
                   onClick={() => paginate(1)}
+                  aria-label="Ir al siguiente paso"
                   className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[17px] py-4 px-6 rounded-full transition-all flex justify-center items-center gap-2 active:scale-[0.98]"
                 >
                   <span>Continuar</span>
@@ -473,6 +689,7 @@ export default function OnboardingPage() {
               <footer className={ctaFooterClass}>
                 <button
                   onClick={() => paginate(1)}
+                  aria-label="Ir al último paso"
                   className="w-full py-4 bg-slate-900 text-white rounded-full font-semibold text-[17px] shadow-sm hover:bg-slate-800 transition-colors active:scale-[0.98] flex items-center justify-center"
                 >
                   Continuar
@@ -502,9 +719,10 @@ export default function OnboardingPage() {
               <footer className={ctaFooterClass}>
                 <button
                   onClick={() => router.push("/event/disco")}
+                  aria-label="Empezar y crear equipo"
                   className="bg-slate-900 text-white font-semibold py-4 px-12 rounded-full text-[17px] hover:bg-slate-800 transition-all active:scale-95 duration-200 shadow-[0_4px_20_rgba(15,23,42,0.2)] w-full max-w-[280px] mx-auto flex items-center justify-center"
                 >
-                  Start
+                  Empezar
                 </button>
               </footer>
             </>

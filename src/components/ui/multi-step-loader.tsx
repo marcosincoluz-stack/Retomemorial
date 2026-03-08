@@ -51,43 +51,44 @@ const LoaderCore = ({
     value?: number;
 }) => {
     return (
-        <div className="flex relative justify-start max-w-xl mx-auto flex-col mt-32 md:mt-40">
+        <div className="flex relative justify-start max-w-xl mx-auto flex-col mt-28 md:mt-32 px-4">
             {loadingStates.map((condition, index) => {
                 const distance = Math.abs(index - value);
-                const opacity = Math.max(1 - distance * 0.2, 0);
+                const opacity = Math.max(1 - distance * 0.1, 0.78);
 
                 return (
                     <motion.div
                         key={index}
                         className={cn(
-                            "text-left flex gap-2 mb-4",
-                            index > value ? "text-neutral-500" : "text-neutral-100"
+                            "text-left flex gap-2.5 mb-4",
+                            index > value ? "text-slate-300" : "text-white"
                         )}
                         initial={{ opacity: 0, y: -(value * 40) }}
                         animate={{ opacity: opacity, y: -(value * 40) }}
-                        transition={{ duration: 0.5 }}
+                        transition={{ duration: 0.45 }}
                     >
-                        <div>
-                            {index > value && (
-                                <CheckIcon className="text-neutral-500 w-6 h-6 md:w-8 md:h-8" />
-                            )}
-                            {index <= value && (
-                                <div className="text-green-500">
-                                    <motion.div
-                                        className="w-6 h-6 md:w-8 md:h-8 text-green-500"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        transition={{ delay: 0.2 }}
-                                    >
-                                        <CheckFilled className={cn("text-green-500")} />
-                                    </motion.div>
-                                </div>
+                        <div className="shrink-0">
+                            {index > value ? (
+                                <CheckIcon className="text-slate-300 w-6 h-6 md:w-7 md:h-7" />
+                            ) : (
+                                <motion.div
+                                    className="w-6 h-6 md:w-7 md:h-7 text-emerald-400"
+                                    initial={{ opacity: 0.6, scale: 0.92 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: 0.12, duration: 0.2 }}
+                                >
+                                    <CheckFilled className="text-emerald-400" />
+                                </motion.div>
                             )}
                         </div>
                         <span
                             className={cn(
-                                "text-black dark:text-white md:text-xl",
-                                value === index ? "opacity-100" : "opacity-30"
+                                "text-white text-[17px] md:text-xl font-semibold tracking-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.75)]",
+                                value === index
+                                    ? "opacity-100"
+                                    : index < value
+                                        ? "opacity-90"
+                                        : "opacity-80"
                             )}
                         >
                             {condition.text}
@@ -95,6 +96,17 @@ const LoaderCore = ({
                     </motion.div>
                 );
             })}
+            <div className="mt-1 flex items-center gap-2 pl-[34px]">
+                {loadingStates.map((_state, index) => (
+                    <span
+                        key={index}
+                        className={cn(
+                            "h-1 rounded-full transition-all duration-300",
+                            index <= value ? "w-5 bg-emerald-300" : "w-2 bg-slate-500"
+                        )}
+                    />
+                ))}
+            </div>
         </div>
     );
 };
@@ -138,7 +150,7 @@ export const MultiStepLoader = ({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="w-full h-full fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-2xl bg-black/80"
+                    className="w-full h-full fixed inset-0 z-[100] flex items-center justify-center bg-slate-950"
                 >
                     <div className="h-96 relative">
                         <LoaderCore value={currentState} loadingStates={loadingStates} />

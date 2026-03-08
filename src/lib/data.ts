@@ -70,7 +70,7 @@ export const ATHLETES = {
             { id: 'lm2', name: 'Wayne Pinnock', mark: 8.50, image: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?q=80&w=400&auto=format&fit=crop' },
             { id: 'lm3', name: 'Wang Jianan', mark: 8.36, image: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=400&auto=format&fit=crop' },
             { id: 'lm4', name: 'Simon Ehammer', mark: 8.45, image: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lm5', name: 'Carey McLeod', male: 8.40, image: 'https://images.unsplash.com/photo-1541252260730-0412e8e2108e?q=80&w=400&auto=format&fit=crop' },
+            { id: 'lm5', name: 'Carey McLeod', mark: 8.40, image: 'https://images.unsplash.com/photo-1541252260730-0412e8e2108e?q=80&w=400&auto=format&fit=crop' },
         ],
         female: [
             { id: 'lf1', name: 'Ivana Vuleta', mark: 7.06, image: 'https://images.unsplash.com/photo-1594882645126-14020914d58d?q=80&w=400&auto=format&fit=crop' },

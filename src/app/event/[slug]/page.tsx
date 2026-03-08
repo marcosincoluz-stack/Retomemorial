@@ -7,16 +7,18 @@ import { submitFullParticipation } from "@/app/actions";
 import { MultiStepLoader } from "@/components/ui/multi-step-loader";
 import { ShineBorder } from "@/registry/magicui/shine-border";
 import { Highlighter } from "@/registry/magicui/highlighter";
+import { ProgressiveImage } from "@/components/ui/progressive-image";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 import { motion, AnimatePresence } from "framer-motion";
 import { MoveLeft, Plus, Check, Lock, Search, Medal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const loadingStates = [
-    { text: "Registrando tu equipo unificado..." },
-    { text: "Verificando los 6 atletas seleccionados..." },
-    { text: "Generando tu boleto premium..." },
-    { text: "Preparando acceso VIP..." },
-    { text: "¡Todo listo! Tu apuesta ha sido registrada. 🎟️" },
+    { text: "Guardando equipo" },
+    { text: "Validando selección" },
+    { text: "Generando ticket" },
+    { text: "Activando acceso" },
+    { text: "Listo, vamos al ticket" },
 ];
 
 type AthleteSlotData = {
@@ -118,11 +120,14 @@ type SelectionBurst = {
     to: BurstRect;
 };
 
+type SlotGenderKey = "male" | "female";
+
 export default function UnifiedSelectionPage() {
     const router = useRouter();
     const athleteListRef = useRef<HTMLElement | null>(null);
     const slotRefs = useRef<Record<string, HTMLButtonElement | null>>({});
     const burstCounterRef = useRef(0);
+    const settlingTimeoutRef = useRef<number | null>(null);
 
     const [activeEventSlug, setActiveEventSlug] = useState<string>('disco');
     const [genderFilter, setGenderFilter] = useState<"male" | "female">("male");
@@ -137,12 +142,21 @@ export default function UnifiedSelectionPage() {
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [selectionBurst, setSelectionBurst] = useState<SelectionBurst | null>(null);
+    const [settlingSlotKey, setSettlingSlotKey] = useState<string | null>(null);
     const [previewAthlete, setPreviewAthlete] = useState<AthletePreviewData | null>(null);
     const [showCreateTeamHint, setShowCreateTeamHint] = useState(true);
     const [showHintSubtitleUnderline, setShowHintSubtitleUnderline] = useState(false);
 
     const activeEvent = EVENTS.find(e => e.slug === activeEventSlug) || EVENTS[0];
     const eventAthletes = ATHLETES[activeEventSlug as keyof typeof ATHLETES];
+
+    useEffect(() => {
+        return () => {
+            if (settlingTimeoutRef.current) {
+                window.clearTimeout(settlingTimeoutRef.current);
+            }
+        };
+    }, []);
 
     const filteredAthletes = useMemo(() => {
         if (!eventAthletes) return [];
@@ -198,47 +212,103 @@ export default function UnifiedSelectionPage() {
         setGenderFilter("male");
     };
 
+    const launchSelectionBurst = ({
+        athleteId,
+        athleteName,
+        athleteImage,
+        eventSlug,
+        genderKey,
+    }: {
+        athleteId: string;
+        athleteName: string;
+        athleteImage: string;
+        eventSlug: string;
+        genderKey: SlotGenderKey;
+    }) => {
+        if (typeof window === "undefined") return false;
+
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const cardAspect = 1.32;
+        const preferredW = Math.min(vw * 0.86, 430);
+        const preferredH = preferredW * cardAspect;
+        const startH = Math.min(vh * 0.78, preferredH);
+        const startW = startH / cardAspect;
+        const slotKey = `${eventSlug}-${genderKey}`;
+
+        const startBurst = (destination: DOMRect) => {
+            setSelectionBurst({
+                id: `${athleteId}-${burstCounterRef.current++}`,
+                athlete: { name: athleteName, image: athleteImage },
+                eventSlug,
+                genderKey,
+                athleteId,
+                gender: genderKey === "male" ? "M" : "F",
+                from: {
+                    x: (vw - startW) / 2,
+                    y: Math.max(14, (vh - startH) / 2 - 24),
+                    w: startW,
+                    h: startH,
+                },
+                to: {
+                    x: destination.left,
+                    y: destination.top,
+                    w: destination.width,
+                    h: destination.height,
+                },
+            });
+        };
+
+        const resolveDestination = (attempt: number) => {
+            const destinationFromRef = slotRefs.current[slotKey]?.getBoundingClientRect();
+            const destinationFromQuery =
+                typeof document !== "undefined"
+                    ? document.querySelector<HTMLButtonElement>(`[data-slot-key="${slotKey}"]`)?.getBoundingClientRect()
+                    : null;
+            const destination = destinationFromRef ?? destinationFromQuery;
+            if (destination) {
+                startBurst(destination);
+                return true;
+            }
+            if (attempt >= 8) {
+                setSelections((prev) => {
+                    const current = { ...prev[eventSlug] };
+                    if (genderKey === "male") {
+                        current.maleId = athleteId;
+                    } else {
+                        current.femaleId = athleteId;
+                    }
+                    return { ...prev, [eventSlug]: current };
+                });
+                moveToNextSlot(eventSlug, genderKey);
+                return false;
+            }
+            window.requestAnimationFrame(() => {
+                resolveDestination(attempt + 1);
+            });
+            return true;
+        };
+
+        return resolveDestination(0);
+    };
+
     const handleToggleAthlete = (id: string) => {
         if (selectionBurst) return;
 
         const isSelecting = selectedAthleteId !== id;
 
-        if (isSelecting && typeof window !== "undefined") {
+        if (isSelecting) {
             const pool = genderFilter === "male" ? eventAthletes?.male : eventAthletes?.female;
             const athlete = pool?.find((candidate) => candidate.id === id);
-            const slotKey = `${activeEventSlug}-${genderFilter}`;
-            const destination = slotRefs.current[slotKey]?.getBoundingClientRect();
-
-            if (athlete && destination) {
-                const vw = window.innerWidth;
-                const vh = window.innerHeight;
-                const cardAspect = 1.32;
-                const preferredW = Math.min(vw * 0.86, 430);
-                const preferredH = preferredW * cardAspect;
-                const startH = Math.min(vh * 0.78, preferredH);
-                const startW = startH / cardAspect;
-
-                setSelectionBurst({
-                    id: `${id}-${burstCounterRef.current++}`,
-                    athlete: { name: athlete.name, image: athlete.image },
+            if (athlete) {
+                const launched = launchSelectionBurst({
+                    athleteId: id,
+                    athleteName: athlete.name,
+                    athleteImage: athlete.image,
                     eventSlug: activeEventSlug,
                     genderKey: genderFilter,
-                    athleteId: id,
-                    gender: genderFilter === "male" ? "M" : "F",
-                    from: {
-                        x: (vw - startW) / 2,
-                        y: Math.max(14, (vh - startH) / 2 - 24),
-                        w: startW,
-                        h: startH,
-                    },
-                    to: {
-                        x: destination.left,
-                        y: destination.top,
-                        w: destination.width,
-                        h: destination.height,
-                    },
                 });
-                return;
+                if (launched) return;
             }
         }
 
@@ -264,6 +334,7 @@ export default function UnifiedSelectionPage() {
         }, 0);
     }, [selections]);
     const hasAnySelection = selectedSlotsCount > 0;
+    const totalSlots = EVENTS.length * 2;
 
     const isPreviewSelected = useMemo(() => {
         if (!previewAthlete) return false;
@@ -275,6 +346,7 @@ export default function UnifiedSelectionPage() {
         );
         return selectedAthleteId === previewAthlete.id || isPendingSelected;
     }, [previewAthlete, selectionBurst, activeEventSlug, genderFilter, selectedAthleteId]);
+    const isBursting = Boolean(selectionBurst);
 
     const handleSelectFromPreview = () => {
         if (!previewAthlete) return;
@@ -317,7 +389,8 @@ export default function UnifiedSelectionPage() {
 
     const onLoaderComplete = async () => {
         try {
-            const result = await submitFullParticipation(selections);
+            const deviceId = await getOrCreateDeviceId();
+            const result = await submitFullParticipation(selections, deviceId ?? undefined);
             if (result.success && result.reference) {
                 window.location.href = `/confirmation/${result.reference}`;
             } else {
@@ -400,12 +473,26 @@ export default function UnifiedSelectionPage() {
                 <header className="sticky top-0 z-50 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.25rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-0 sm:pb-1.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2">
                     <button
                         onClick={() => router.back()}
+                        aria-label="Volver a la pantalla anterior"
                         className="size-9 sm:size-10 flex items-center justify-center rounded-full bg-white text-slate-800 transition-all hover:bg-slate-100 border border-slate-200 active:scale-95 shadow-sm"
                     >
                         <MoveLeft className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                     </button>
 
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex-1 flex justify-center px-1">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 text-center leading-tight">
+                            {selectedSlotsCount}/{totalSlots} huecos completos
+                        </p>
+                    </div>
+
+                    <div
+                        className="flex items-center gap-2.5 shrink-0"
+                        role="progressbar"
+                        aria-label="Progreso de selección"
+                        aria-valuemin={1}
+                        aria-valuemax={6}
+                        aria-valuenow={5}
+                    >
                         <span className="text-[10px] font-semibold text-slate-500 tracking-tight">5/6</span>
                         <div className="flex gap-1 items-center">
                             {[1, 2, 3, 4, 5, 6].map((dot) => (
@@ -441,35 +528,45 @@ export default function UnifiedSelectionPage() {
                         {EVENTS.map((event, index) => (
                             <AthleteSlot
                                 key={`${event.slug}-male`}
+                                slotKey={`${event.slug}-male`}
                                 athlete={getAthleteById(selections[event.slug].maleId, event.slug, "male")}
                                 gender="M"
+                                eventName={event.name}
                                 isActive={activeEventSlug === event.slug && genderFilter === "male"}
                                 floatIndex={index}
+                                isSettling={settlingSlotKey === `${event.slug}-male`}
                                 slotRef={(node) => {
                                     slotRefs.current[`${event.slug}-male`] = node;
                                 }}
                                 onClick={() => {
+                                    if (isBursting) return;
                                     setActiveEventSlug(event.slug);
                                     setGenderFilter("male");
                                 }}
-                            />
+                                freezeMotion={isBursting}
+                                />
                         ))}
 
                         {EVENTS.map((event, index) => (
                             <AthleteSlot
                                 key={`${event.slug}-female`}
+                                slotKey={`${event.slug}-female`}
                                 athlete={getAthleteById(selections[event.slug].femaleId, event.slug, "female")}
                                 gender="F"
+                                eventName={event.name}
                                 isActive={activeEventSlug === event.slug && genderFilter === "female"}
                                 floatIndex={index + 3}
+                                isSettling={settlingSlotKey === `${event.slug}-female`}
                                 slotRef={(node) => {
                                     slotRefs.current[`${event.slug}-female`] = node;
                                 }}
                                 onClick={() => {
+                                    if (isBursting) return;
                                     setActiveEventSlug(event.slug);
                                     setGenderFilter("female");
                                 }}
-                            />
+                                freezeMotion={isBursting}
+                                />
                         ))}
                     </div>
                 </section>
@@ -479,7 +576,10 @@ export default function UnifiedSelectionPage() {
                     <div className="flex items-center justify-between gap-2 sm:gap-3">
                         <div className="flex p-1 bg-white/90 rounded-[16px] border border-slate-200 shadow-inner">
                             <button
+                                disabled={isBursting}
                                 onClick={() => setGenderFilter('male')}
+                                aria-label="Filtrar atletas masculinos"
+                                aria-pressed={genderFilter === "male"}
                                 className={cn(
                                     "px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all duration-300 whitespace-nowrap",
                                     genderFilter === 'male' ? "bg-slate-900 text-white shadow-md ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800"
@@ -488,7 +588,10 @@ export default function UnifiedSelectionPage() {
                                 Masculino
                             </button>
                             <button
+                                disabled={isBursting}
                                 onClick={() => setGenderFilter('female')}
+                                aria-label="Filtrar atletas femeninas"
+                                aria-pressed={genderFilter === "female"}
                                 className={cn(
                                     "px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all duration-300 whitespace-nowrap",
                                     genderFilter === 'female' ? "bg-slate-900 text-white shadow-md ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800"
@@ -499,11 +602,16 @@ export default function UnifiedSelectionPage() {
                         </div>
 
                         <label className="h-10 w-[120px] sm:w-[138px] rounded-[14px] border border-slate-200 bg-white flex items-center gap-1.5 px-2.5 text-slate-600 focus-within:border-slate-400 focus-within:bg-white transition-colors">
+                            <span className="sr-only">Buscar atleta</span>
                             <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <input
+                                type="search"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 placeholder="Buscar"
+                                aria-label="Buscar atleta por nombre"
+                                autoComplete="off"
+                                disabled={isBursting}
                                 className="w-full bg-transparent border-0 outline-none text-[16px] sm:text-[13px] text-slate-800 placeholder:text-slate-400"
                             />
                         </label>
@@ -511,7 +619,11 @@ export default function UnifiedSelectionPage() {
                 </div>
 
                 {/* Athlete List Section - Bubble Cards */}
-                <section ref={athleteListRef} className="px-4 sm:px-6 flex flex-col flex-1 min-h-0 relative z-10 overflow-y-auto ios-scroll overscroll-contain pb-20 sm:pb-24">
+                <section
+                    ref={athleteListRef}
+                    aria-label="Lista de atletas"
+                    className="px-4 sm:px-6 flex flex-col flex-1 min-h-0 relative z-10 overflow-y-auto ios-scroll overscroll-contain pb-20 sm:pb-24"
+                >
                     <div className="space-y-2.5 sm:space-y-3">
                         {filteredAthletes.map((athlete) => {
                             const isPendingSelected = Boolean(
@@ -525,6 +637,15 @@ export default function UnifiedSelectionPage() {
                                 <div
                                     key={`${genderFilter}-${athlete.id}`}
                                     onClick={() => openAthletePreview(athlete)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            openAthletePreview(athlete);
+                                        }
+                                    }}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Abrir perfil de ${athlete.name}`}
                                     className={cn(
                                         "p-2 sm:p-2.5 rounded-[22px] sm:rounded-[28px] flex items-center gap-2.5 sm:gap-3 bg-white/95 border transition-all duration-300 group shadow-[0_10px_24px_rgba(15,23,42,0.07)] cursor-pointer",
                                         isSelected ? "border-slate-300 bg-white" : "border-slate-200"
@@ -538,7 +659,12 @@ export default function UnifiedSelectionPage() {
                                         }}
                                         className="relative p-0.5 rounded-[18px] border border-slate-200 group-hover:border-slate-300 transition-colors"
                                     >
-                                        <img src={athlete.image} alt={athlete.name} className="size-12 sm:size-14 rounded-[12px] sm:rounded-[14px] object-cover saturate-[1.12] transition-all duration-500" />
+                                        <ProgressiveImage
+                                            src={athlete.image}
+                                            alt={athlete.name}
+                                            wrapperClassName="size-12 sm:size-14 rounded-[12px] sm:rounded-[14px]"
+                                            className="h-full w-full object-cover saturate-[1.12] transition-all duration-500"
+                                        />
                                     </button>
                                     <div className="flex-1 px-1">
                                         <p className="font-bold text-[15px] sm:text-base leading-tight tracking-tight text-slate-900">{athlete.name}</p>
@@ -553,6 +679,11 @@ export default function UnifiedSelectionPage() {
                                             event.stopPropagation();
                                             handleToggleAthlete(athlete.id);
                                         }}
+                                        aria-label={
+                                            isSelected
+                                                ? `Quitar a ${athlete.name} del equipo`
+                                                : `Añadir a ${athlete.name} al equipo`
+                                        }
                                         className={cn(
                                             "size-9 sm:size-10 rounded-full flex items-center justify-center transition-all duration-250 active:scale-95",
                                             selectionBurst && "pointer-events-none opacity-60",
@@ -570,7 +701,7 @@ export default function UnifiedSelectionPage() {
 
                     {filteredAthletes.length === 0 && (
                         <div className="py-20 text-center opacity-40">
-                            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No se hallaron atletas</p>
+                            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No se encontraron atletas</p>
                         </div>
                     )}
                 </section>
@@ -583,6 +714,8 @@ export default function UnifiedSelectionPage() {
                     <button
                         disabled={!hasAnySelection}
                         onClick={handleConfirm}
+                        aria-disabled={!hasAnySelection}
+                        aria-label="Confirmar equipo"
                         className={cn(
                             "w-full h-14 sm:h-14 rounded-[36px] font-black text-[15px] sm:text-[16px] uppercase tracking-[0.2em] sm:tracking-widest flex items-center justify-center gap-3 transition-all duration-500 translate-y-[6px]",
                             hasAnySelection
@@ -590,17 +723,17 @@ export default function UnifiedSelectionPage() {
                                 : "bg-slate-300 text-slate-500 cursor-not-allowed opacity-80"
                         )}
                     >
-                        Confirmar Equipo
+                        Confirmar equipo
                         {!hasAnySelection && <Lock className="w-4 h-4 mb-0.5" />}
                     </button>
                 </div>
             </div>
 
-            <MultiStepLoader loadingStates={loadingStates} loading={loading} duration={1000} onComplete={onLoaderComplete} />
+            <MultiStepLoader loadingStates={loadingStates} loading={loading} duration={820} onComplete={onLoaderComplete} />
 
             <AnimatePresence>
                 {selectionBurst && (
-                    <motion.div className="pointer-events-none fixed inset-0 z-[120]" style={{ perspective: 1600 }}>
+                    <motion.div className="pointer-events-none fixed inset-0 z-[140]" style={{ perspective: 1600 }}>
                         <motion.div
                             initial={{
                                 left: selectionBurst.from.x,
@@ -665,6 +798,7 @@ export default function UnifiedSelectionPage() {
                                 ease: [0.2, 0.92, 0.25, 1],
                             }}
                             onAnimationComplete={() => {
+                                const completedSlotKey = `${selectionBurst.eventSlug}-${selectionBurst.genderKey}`;
                                 setSelections((prev) => {
                                     const current = { ...prev[selectionBurst.eventSlug] };
                                     if (selectionBurst.genderKey === "male") {
@@ -674,6 +808,13 @@ export default function UnifiedSelectionPage() {
                                     }
                                     return { ...prev, [selectionBurst.eventSlug]: current };
                                 });
+                                setSettlingSlotKey(completedSlotKey);
+                                if (settlingTimeoutRef.current) {
+                                    window.clearTimeout(settlingTimeoutRef.current);
+                                }
+                                settlingTimeoutRef.current = window.setTimeout(() => {
+                                    setSettlingSlotKey((prev) => (prev === completedSlotKey ? null : prev));
+                                }, 520);
                                 moveToNextSlot(selectionBurst.eventSlug, selectionBurst.genderKey);
                                 if (typeof window !== "undefined") {
                                     window.requestAnimationFrame(() => setSelectionBurst(null));
@@ -713,10 +854,12 @@ export default function UnifiedSelectionPage() {
                                             }}
                                             style={{ transform: "translateZ(8px)" }}
                                         >
-                                            <img
+                                            <ProgressiveImage
                                                 src={selectionBurst.athlete.image}
                                                 alt={selectionBurst.athlete.name}
-                                                className="absolute inset-0 h-full w-full rounded-[10px] bg-slate-200 object-cover saturate-[1.15]"
+                                                wrapperClassName="absolute inset-0 rounded-[10px]"
+                                                className="h-full w-full rounded-[10px] bg-slate-200 object-cover saturate-[1.15]"
+                                                loading="eager"
                                             />
                                             <div className="absolute inset-0 rounded-[10px] bg-gradient-to-t from-slate-900/35 via-slate-900/5 to-transparent" />
                                         </motion.div>
@@ -777,6 +920,7 @@ export default function UnifiedSelectionPage() {
                                 <button
                                     type="button"
                                     onClick={() => setPreviewAthlete(null)}
+                                    aria-label="Cerrar perfil de atleta"
                                     className="size-9 sm:size-10 flex items-center justify-center rounded-full bg-white/85 backdrop-blur-md border border-slate-200 text-slate-800 transition hover:bg-white"
                                 >
                                     <MoveLeft className="w-4 h-4" />
@@ -786,10 +930,12 @@ export default function UnifiedSelectionPage() {
 
                             <section>
                                 <div className="w-full h-[40vh] min-h-[250px] max-h-[350px] sm:h-auto sm:aspect-[4/5] relative">
-                                    <img
+                                    <ProgressiveImage
                                         src={previewAthlete.image}
                                         alt={previewAthlete.name}
-                                        className="w-full h-full object-cover object-top saturate-[1.15]"
+                                        wrapperClassName="h-full w-full"
+                                        className="h-full w-full object-cover object-top saturate-[1.15]"
+                                        loading="eager"
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent" />
                                     <div className="absolute bottom-4 left-4 right-4 sm:bottom-6">
@@ -812,7 +958,7 @@ export default function UnifiedSelectionPage() {
                                         <div className="rounded-[16px] p-3.5 sm:p-4 h-[80px] sm:h-[90px] border border-slate-200 bg-white/85 backdrop-blur-md flex flex-col justify-center gap-1">
                                             <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Categoría</span>
                                             <span className="text-[13px] sm:text-sm font-bold text-slate-900 tracking-tight leading-tight">
-                                                {previewAthlete.genderLabel === "M" ? "Masculina" : "Femenina"}
+                                                {previewAthlete.genderLabel === "M" ? "Masculino" : "Femenina"}
                                             </span>
                                         </div>
                                     </div>
@@ -858,6 +1004,7 @@ export default function UnifiedSelectionPage() {
                                 type="button"
                                 disabled={Boolean(selectionBurst)}
                                 onClick={handleSelectFromPreview}
+                                aria-label={isPreviewSelected ? "Atleta ya seleccionado" : "Añadir atleta al equipo"}
                                 className={cn(
                                     "w-full h-14 rounded-full font-bold text-[15px] tracking-wide transition-all flex items-center justify-center gap-2",
                                     isPreviewSelected
@@ -877,38 +1024,55 @@ export default function UnifiedSelectionPage() {
 }
 
 function AthleteSlot({
+    slotKey,
     athlete,
     gender,
+    eventName,
     isActive,
     floatIndex,
+    isSettling = false,
+    freezeMotion = false,
     slotRef,
     onClick,
 }: {
+    slotKey: string;
     athlete: AthleteSlotData | null;
     gender: "M" | "F";
+    eventName: string;
     isActive: boolean;
     floatIndex: number;
+    isSettling?: boolean;
+    freezeMotion?: boolean;
     slotRef?: (node: HTMLButtonElement | null) => void;
     onClick: () => void;
 }) {
     const floatClass = ["team-sticker-a", "team-sticker-b", "team-sticker-c"][floatIndex % 3];
+    const shouldFloat = Boolean(athlete) && !isSettling;
+    const floatPhase = floatIndex % 3;
 
     return (
         <motion.button
             type="button"
             onClick={onClick}
             ref={slotRef}
+            data-slot-key={slotKey}
+            aria-label={
+                athlete
+                    ? `Editar selección de ${eventName} ${gender === "M" ? "masculino" : "femenino"}`
+                    : `Seleccionar atleta de ${eventName} ${gender === "M" ? "masculino" : "femenino"}`
+            }
             style={{
                 transformStyle: "preserve-3d",
                 willChange: athlete ? "transform" : undefined,
-                animationDelay: athlete ? `${floatIndex * 0.18}s` : undefined,
+                animationDelay: shouldFloat ? `${-(floatPhase * 1.35)}s` : undefined,
+                animationPlayState: freezeMotion || isSettling ? "paused" : "running",
                 backfaceVisibility: "visible",
                 WebkitBackfaceVisibility: "visible",
             }}
             className={cn(
                 "aspect-[3/3.5] sm:aspect-[4/6] rounded-[14px] sm:rounded-[22px] border relative transition-all duration-500 overflow-hidden",
-                athlete && "team-sticker",
-                athlete && floatClass,
+                shouldFloat && "team-sticker",
+                shouldFloat && floatClass,
                 isActive
                     ? athlete
                         ? "border-slate-900 ring-1 ring-slate-300 z-20"
@@ -918,7 +1082,7 @@ function AthleteSlot({
                         : "border-slate-300/90 border-dashed bg-white/45 backdrop-blur-xl backdrop-saturate-150 z-10"
             )}
         >
-            {!athlete && isActive && (
+            {!athlete && isActive && !freezeMotion && (
                 <ShineBorder
                     duration={6}
                     borderWidth={1.8}
@@ -945,11 +1109,11 @@ function AthleteSlot({
                         >
                             <div className="mx-0.5 flex-1 min-h-0">
                                 <div className="relative h-full w-full" style={{ transform: "translateZ(8px)" }}>
-                                    <img
-                                        loading="lazy"
+                                    <ProgressiveImage
                                         className="absolute inset-0 h-full w-full rounded-[10px] bg-slate-200 object-cover saturate-[1.15]"
                                         alt={athlete.name}
                                         src={athlete.image}
+                                        wrapperClassName="absolute inset-0 rounded-[10px]"
                                         style={{
                                             boxShadow: "rgba(0, 0, 0, 0.05) 0px 5px 6px 0px",
                                             opacity: 1,

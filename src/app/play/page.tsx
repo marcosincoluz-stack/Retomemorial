@@ -4,6 +4,7 @@ import { EVENTS } from "@/lib/data";
 import Link from "next/link";
 import { MoveLeft, MousePointerClick } from "lucide-react";
 import { motion } from "framer-motion";
+import { ProgressiveImage } from "@/components/ui/progressive-image";
 
 export default function PlayPage() {
     return (
@@ -18,6 +19,7 @@ export default function PlayPage() {
                 <header className="w-full flex items-center mb-2 md:mb-6">
                     <Link
                         href="/"
+                        aria-label="Volver al inicio"
                         className="size-9 sm:size-10 flex items-center justify-center rounded-full bg-white text-slate-800 transition-all hover:bg-slate-100 border border-slate-200 active:scale-95 shadow-sm"
                     >
                         <MoveLeft className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
@@ -37,11 +39,12 @@ export default function PlayPage() {
                 </motion.div>
 
                 {/* Comet Cards Carousel - Mobile First */}
-                <div className="w-full flex-1 min-h-0 flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory gap-3 sm:gap-6 px-1 pr-14 sm:px-4 sm:pr-4 pb-3 md:pb-4 scrollbar-hide select-none touch-pan-x justify-start md:justify-center items-center">
+                <div className="w-full flex-1 min-h-0 flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory gap-3 sm:gap-6 px-1 pr-14 sm:px-4 sm:pr-4 pb-3 md:pb-4 scrollbar-hide select-none touch-pan-x scroll-smooth justify-start md:justify-center items-center">
                     {EVENTS.map((event, index) => (
                         <Link
                             href={`/event/${event.slug}`}
                             key={event.slug}
+                            aria-label={`Abrir reto de ${event.name}`}
                             className="flex-shrink-0 snap-start py-2 md:py-4 first:ml-1 last:mr-2 sm:last:mr-0"
                             style={{ WebkitTapHighlightColor: "transparent" }}
                         >
@@ -90,11 +93,11 @@ export default function PlayPage() {
                                         style={{ transformStyle: "preserve-3d" }}
                                     >
                                         <div className="relative mt-1 aspect-[3/4.2] w-full overflow-hidden rounded-[18px]">
-                                            <img
-                                                loading="lazy"
+                                            <ProgressiveImage
                                                 className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover/card:scale-110"
                                                 alt={event.name}
                                                 src={event.image}
+                                                wrapperClassName="absolute inset-0"
                                             />
                                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/25 via-slate-900/5 to-transparent opacity-40" />
                                         </div>
@@ -110,13 +113,13 @@ export default function PlayPage() {
                                                 <div className="flex flex-col">
                                                     <span className="text-[11px] text-slate-500 uppercase font-bold mb-1">Hombres</span>
                                                     <div className="text-lg font-bold tracking-tight text-slate-900">
-                                                        {event.markToBeat.male}{event.id === 'longitud' ? 'm' : 'm'}
+                                                        {event.markToBeat.male}m
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-col border-l border-slate-200 pl-6">
                                                     <span className="text-[11px] text-slate-500 uppercase font-bold mb-1">Mujeres</span>
                                                     <div className="text-lg font-bold tracking-tight text-slate-900">
-                                                        {event.markToBeat.female}{event.id === 'longitud' ? 'm' : 'm'}
+                                                        {event.markToBeat.female}m
                                                     </div>
                                                 </div>
                                             </div>
