@@ -255,6 +255,14 @@ export default function OnboardingPage() {
       return;
     }
 
+    // Step 1 reserves gesture control for the card carousel/spin.
+    // Wizard pagination continues via the CTA button.
+    if (page === 1) {
+      touchMoveYRef.current = null;
+      touchStartRef.current = null;
+      return;
+    }
+
     const touch = event.changedTouches[0];
     const deltaX = touch.clientX - touchStartRef.current.x;
     const deltaY = touch.clientY - touchStartRef.current.y;
