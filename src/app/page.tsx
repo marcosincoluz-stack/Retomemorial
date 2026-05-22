@@ -370,7 +370,7 @@ export default function OnboardingPage() {
     }
   };
 
-  const skip = () => router.push("/play");
+  const skip = () => router.push("/event/disco");
 
   const addSpinImpulse = (delta: number) => {
     if (page !== 1) return;
