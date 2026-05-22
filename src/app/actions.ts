@@ -1,6 +1,8 @@
 "use server";
 
 import { createHash } from "crypto";
+import fs from "fs";
+import path from "path";
 import { addMinutes, isAfter } from "date-fns";
 import { cookies } from "next/headers";
 import { EVENTS, getAthleteCost } from "@/lib/data";
@@ -17,6 +19,7 @@ export type FullParticipationResult = {
 
 export type ExistingParticipationResult = {
   found: boolean;
+  error?: boolean;
   reference?: string;
   selections?: SelectionsMap;
   createdAt?: string;
@@ -51,11 +54,40 @@ type DeviceLockRow = {
   participation_id: string;
 };
 
-const mockParticipations = new Map<string, ParticipationRecord>();
-const mockDeviceLocks = new Map<string, string>();
 const DEVICE_LOCK_COOKIE = "rm_device_lock";
 const DEVICE_LOCK_SECRET =
   process.env.DEVICE_LOCK_SECRET ?? "retomemorial-device-lock";
+
+const MOCK_DB_FILE = path.join(process.cwd(), ".next", "mock_db.json");
+
+type MockDbData = {
+  participations: Record<string, ParticipationRecord>;
+  deviceLocks: Record<string, string>;
+};
+
+function readMockDb(): MockDbData {
+  try {
+    if (fs.existsSync(MOCK_DB_FILE)) {
+      const content = fs.readFileSync(MOCK_DB_FILE, "utf-8");
+      return JSON.parse(content);
+    }
+  } catch (err) {
+    console.error("Error reading mock DB:", err);
+  }
+  return { participations: {}, deviceLocks: {} };
+}
+
+function writeMockDb(data: MockDbData) {
+  try {
+    const dir = path.dirname(MOCK_DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(MOCK_DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Error writing mock DB:", err);
+  }
+}
 
 /**
  * Lightweight check: only verifies if the device-lock cookie exists.
@@ -64,6 +96,14 @@ const DEVICE_LOCK_SECRET =
 export async function isDeviceLocked(): Promise<boolean> {
   const cookieStore = await cookies();
   return Boolean(cookieStore.get(DEVICE_LOCK_COOKIE)?.value);
+}
+
+/**
+ * Clear the device lock cookie (self-healing / cleanup).
+ */
+export async function clearDeviceLock(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(DEVICE_LOCK_COOKIE);
 }
 
 export async function validateAndTimeCheck(eventSlug: string): Promise<{
@@ -247,21 +287,24 @@ export async function submitFullParticipation(
   const selectedSlotsCount = countSelectedSlots(normalizedSelections);
 
   if (!isSupabaseConfigured()) {
-    if (mockDeviceLocks.has(deviceHash)) {
+    const db = readMockDb();
+    if (db.deviceLocks[deviceHash]) {
       return {
         success: false,
         message: "Este dispositivo ya registró una apuesta.",
       };
     }
 
-    mockParticipations.set(reference, {
+    db.participations[reference] = {
       reference,
       selections: normalizedSelections,
       delivered: false,
       createdAt: new Date().toISOString(),
       selectedSlotsCount,
-    });
-    mockDeviceLocks.set(deviceHash, reference);
+    };
+    db.deviceLocks[deviceHash] = reference;
+    writeMockDb(db);
+
     cookieStore.set(DEVICE_LOCK_COOKIE, deviceHash, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -379,11 +422,12 @@ export async function getExistingParticipationForDevice(
   }
 
   if (!isSupabaseConfigured()) {
-    const reference = mockDeviceLocks.get(deviceHash);
-    if (!reference) return { found: false };
+    const db = readMockDb();
+    const reference = db.deviceLocks[deviceHash];
+    if (!reference) return { found: false, error: false };
 
-    const record = mockParticipations.get(reference);
-    if (!record) return { found: false };
+    const record = db.participations[reference];
+    if (!record) return { found: false, error: false };
 
     if (!cookieHash) {
       cookieStore.set(DEVICE_LOCK_COOKIE, deviceHash, {
@@ -397,6 +441,7 @@ export async function getExistingParticipationForDevice(
 
     return {
       found: true,
+      error: false,
       reference: record.reference,
       selections: record.selections,
       createdAt: record.createdAt,
@@ -411,8 +456,13 @@ export async function getExistingParticipationForDevice(
     .eq("device_hash", deviceHash)
     .maybeSingle<DeviceLockRow>();
 
-  if (deviceLockError || !deviceLock) {
-    return { found: false };
+  if (deviceLockError) {
+    console.error("Error fetching device lock from Supabase:", deviceLockError);
+    return { found: false, error: true };
+  }
+
+  if (!deviceLock) {
+    return { found: false, error: false };
   }
 
   const { data: participation, error: participationError } = await client
@@ -426,8 +476,13 @@ export async function getExistingParticipationForDevice(
       selected_slots_count: number;
     }>();
 
-  if (participationError || !participation) {
-    return { found: false };
+  if (participationError) {
+    console.error("Error fetching participation from Supabase:", participationError);
+    return { found: false, error: true };
+  }
+
+  if (!participation) {
+    return { found: false, error: false };
   }
 
   const { data: picks, error: picksError } = await client
@@ -436,7 +491,8 @@ export async function getExistingParticipationForDevice(
     .eq("participation_id", participation.id);
 
   if (picksError) {
-    return { found: false };
+    console.error("Error fetching picks from Supabase:", picksError);
+    return { found: false, error: true };
   }
 
   if (!cookieHash) {
@@ -452,6 +508,7 @@ export async function getExistingParticipationForDevice(
   const selections = buildSelectionsFromPicks((picks ?? []) as ParticipationPickRow[]);
   return {
     found: true,
+    error: false,
     reference: participation.reference,
     selections,
     createdAt: participation.created_at,
@@ -464,7 +521,8 @@ export async function getParticipation(reference: string) {
   const normalizedReference = reference.trim().toUpperCase();
 
   if (!isSupabaseConfigured()) {
-    return mockParticipations.get(normalizedReference) ?? null;
+    const db = readMockDb();
+    return db.participations[normalizedReference] ?? null;
   }
 
   const client = getSupabaseServiceClient();
@@ -502,9 +560,11 @@ export async function markDelivered(reference: string) {
   const normalizedReference = reference.trim().toUpperCase();
 
   if (!isSupabaseConfigured()) {
-    const record = mockParticipations.get(normalizedReference);
+    const db = readMockDb();
+    const record = db.participations[normalizedReference];
     if (!record) return false;
-    mockParticipations.set(normalizedReference, { ...record, delivered: true });
+    db.participations[normalizedReference] = { ...record, delivered: true };
+    writeMockDb(db);
     return true;
   }
 

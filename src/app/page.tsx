@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { ATHLETES, EVENTS } from "@/lib/data";
-import { getExistingParticipationForDevice, getAthletePopularityStats, isDeviceLocked } from "@/app/actions";
+import { getExistingParticipationForDevice, getAthletePopularityStats, isDeviceLocked, clearDeviceLock } from "@/app/actions";
 import { CometCard } from "@/components/ui/comet-card";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { getOrCreateDeviceId } from "@/lib/device-id";
@@ -266,11 +266,20 @@ export default function OnboardingPage() {
                 setPopularityStats(stats);
               }
             } else {
-              // Cookie exists but DB data missing — still block with minimal info
-              setDeviceParticipation({
-                reference: "—",
-                selectedSlotsCount: 0,
-              });
+              // Cookie exists but DB data missing
+              if (result.error) {
+                // DB fetch failed (temporary connection error) — keep lock to prevent double bets
+                setDeviceParticipation({
+                  reference: "—",
+                  selectedSlotsCount: 0,
+                });
+              } else {
+                // Orphaned cookie (DB truncated or mock DB reset). Auto-heal state.
+                await clearDeviceLock();
+                if (!cancelled) {
+                  setDeviceParticipation(null);
+                }
+              }
             }
           } catch {
             // DB fetch failed but cookie confirmed lock — block with minimal info
