@@ -1,12 +1,55 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { EVENTS } from "@/lib/data";
 import Link from "next/link";
 import { MoveLeft, MousePointerClick } from "lucide-react";
 import { motion } from "framer-motion";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
+import { getExistingParticipationForDevice } from "@/app/actions";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 
 export default function PlayPage() {
+    const router = useRouter();
+    const [checkingDeviceLock, setCheckingDeviceLock] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const runDeviceCheck = async () => {
+            try {
+                const deviceId = await getOrCreateDeviceId();
+                const result = await getExistingParticipationForDevice(deviceId ?? undefined);
+                if (cancelled) return;
+
+                if (result.found && result.reference) {
+                    router.replace("/");
+                } else {
+                    setCheckingDeviceLock(false);
+                }
+            } catch {
+                setCheckingDeviceLock(false);
+            }
+        };
+
+        void runDeviceCheck();
+        return () => { cancelled = true; };
+    }, [router]);
+
+    if (checkingDeviceLock) {
+        return (
+            <main className="h-[100dvh] w-full relative overflow-hidden bg-slate-50">
+                <div className="relative z-10 h-full max-w-md mx-auto px-6 flex flex-col items-center justify-center text-center">
+                    <div className="h-8 w-8 rounded-full border-2 border-slate-300 border-t-slate-900 animate-spin" />
+                    <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 animate-pulse">
+                        Verificando dispositivo...
+                    </p>
+                </div>
+            </main>
+        );
+    }
+
     return (
         <main className="h-[100dvh] bg-slate-50 text-slate-900 w-full overflow-hidden overscroll-none flex flex-col px-4 md:px-10 pt-[calc(env(safe-area-inset-top,0px)+1rem)] md:pt-10 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] md:pb-8 relative">
             {/* Background decoration */}

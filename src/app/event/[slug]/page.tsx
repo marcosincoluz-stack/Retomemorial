@@ -500,6 +500,11 @@ export default function UnifiedSelectionPage() {
                 window.location.href = `/confirmation/${result.reference}`;
             } else {
                 setLoading(false);
+                // If the device already has a bet, redirect to the block dashboard
+                if (result.message?.includes("ya registró")) {
+                    router.replace("/");
+                    return;
+                }
                 setErrorMsg(result.message || "Error al registrar.");
             }
         } catch {
