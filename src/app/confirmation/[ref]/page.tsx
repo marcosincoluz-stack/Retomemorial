@@ -174,12 +174,12 @@ export default function ConfirmationPage() {
       <div className="max-w-md mx-auto w-full h-full flex flex-col px-4 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
         <div className="pt-[calc(env(safe-area-inset-top,0px)+8px)] pb-2" />
 
-        <section className="text-center pb-2">
-          <div className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 mb-1.5">
+        <section className="text-center pb-2 conf-header-section">
+          <div className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 mb-1.5 conf-header-icon">
             <CheckCircle2 className="w-5 h-5" />
           </div>
-          <h2 className="text-lg font-black tracking-tight">Ticket confirmado</h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <h2 className="text-lg font-black tracking-tight conf-header-title">Ticket confirmado</h2>
+          <p className="text-slate-500 text-xs mt-0.5 conf-header-desc">
             Equipo listo para el Reto Memorial
           </p>
         </section>
@@ -187,7 +187,7 @@ export default function ConfirmationPage() {
         <section className="flex-1 min-h-0">
           <div
             ref={ticketRef}
-            className="h-full rounded-2xl border border-slate-200 bg-white shadow-sm p-3 flex flex-col"
+            className="h-full rounded-2xl border border-slate-200 bg-white shadow-sm p-3 flex flex-col conf-ticket-card"
           >
             <div className="flex items-start justify-between pb-2 border-b border-slate-100">
               <div>
@@ -209,13 +209,13 @@ export default function ConfirmationPage() {
                 </p>
               </div>
 
-              <div className={`grid gap-2 ${EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+              <div className={`grid gap-2 conf-slot-grid ${EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
                 {ticketSlots.map((slot, index) => (
                   <TicketSlotCard key={slot.key} slot={slot} index={index} />
                 ))}
               </div>
 
-              <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+              <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 conf-points-banner">
                 <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
                   Puntos gastados
                 </span>
@@ -224,14 +224,14 @@ export default function ConfirmationPage() {
                 </span>
               </div>
 
-              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 conf-ref-box">
                 <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500 text-center">
                   Referencia
                 </p>
                 <p className="text-sm font-mono font-black text-slate-900 tracking-[0.1em] text-center mt-0.5">
                   {ref}
                 </p>
-                <div className="mt-1.5 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center overflow-hidden">
+                <div className="mt-1.5 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center overflow-hidden conf-barcode-graphic">
                   <div className="flex gap-[3px] opacity-85">
                     <div className="w-[2px] h-4 bg-slate-500" />
                     <div className="w-[4px] h-4 bg-slate-500" />
@@ -252,7 +252,7 @@ export default function ConfirmationPage() {
           </div>
         </section>
 
-        <footer className="pt-2.5 grid grid-cols-2 gap-2">
+        <footer className="pt-2.5 grid grid-cols-2 gap-2 conf-footer">
           <button
             onClick={handleDownload}
             className="h-11 bg-slate-900 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
@@ -278,7 +278,7 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
 
   if (!slot.filled || !slot.athleteImage) {
     return (
-      <div className="aspect-[3/3.5] rounded-[14px] border border-dashed border-slate-300/90 bg-white/45 backdrop-blur-xl backdrop-saturate-150 relative overflow-hidden">
+      <div className="aspect-[3/3.5] rounded-[14px] border border-dashed border-slate-300/90 bg-white/45 backdrop-blur-xl backdrop-saturate-150 relative overflow-hidden conf-slot-card">
         <div className="absolute inset-0 flex flex-col items-center justify-center group">
           <div className="flex flex-col items-center gap-2 transition-all duration-500 group-hover:scale-[1.04]">
             <Plus className="w-6 h-6 text-slate-500/90" strokeWidth={2.6} />
@@ -291,7 +291,7 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
 
   return (
     <div
-      className={`aspect-[3/3.5] rounded-[14px] border relative transition-all duration-500 overflow-hidden border-[#c9b07a]/60 bg-[#fffcf4] z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)] team-sticker ${floatClass}`}
+      className={`aspect-[3/3.5] rounded-[14px] border relative transition-all duration-500 overflow-hidden border-[#c9b07a]/60 bg-[#fffcf4] z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)] team-sticker conf-slot-card ${floatClass}`}
       style={{
         transformStyle: "preserve-3d",
         animationDelay: `${-(index % 3) * 1.35}s`,
