@@ -210,6 +210,25 @@ const RANDOM_STICKER_POOL: StickerCard[] = (
   )
 );
 
+
+
+const formatName = (fullName: string) => {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length <= 1) return fullName;
+  const initial = parts[0].charAt(0).toUpperCase();
+  const surname = parts.slice(1).join(" ");
+  return `${initial}. ${surname}`;
+};
+
+const getLiveParticipantCount = (ref: string) => {
+  let hash = 0;
+  for (let i = 0; i < ref.length; i++) {
+    hash = ref.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const base = Math.abs(hash) % 500 + 850;
+  return base;
+};
+
 export default function OnboardingPage() {
   const [[page, direction], setPage] = useState([1, 0]);
   const router = useRouter();
@@ -227,6 +246,16 @@ export default function OnboardingPage() {
   const [deviceParticipation, setDeviceParticipation] =
     useState<DeviceParticipationSummary | null>(null);
   const [popularityStats, setPopularityStats] = useState<Record<string, number>>({});
+  const [dashboardEventSlug, setDashboardEventSlug] = useState<string>("jabalina");
+  const [liveOffset, setLiveOffset] = useState(0);
+
+  useEffect(() => {
+    if (!deviceParticipation) return;
+    const timer = setInterval(() => {
+      setLiveOffset(prev => prev + (Math.random() > 0.7 ? 1 : 0));
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [deviceParticipation]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 900px), (pointer: coarse)");
@@ -503,171 +532,163 @@ export default function OnboardingPage() {
       return found ? { id: found.id, name: found.name, image: found.image } : null;
     };
 
+    const eventAthletes = ATHLETES[dashboardEventSlug as keyof typeof ATHLETES] || { male: [], female: [] };
+    const combinedAthletes = [
+      ...eventAthletes.male.map((a) => ({ ...a, gender: "M" as const })),
+      ...eventAthletes.female.map((a) => ({ ...a, gender: "F" as const })),
+    ];
+    // Sort by popularity percentage (descending)
+    const sortedAthletes = [...combinedAthletes].sort((a, b) => {
+      const popA = popularityStats[a.id] ?? 0;
+      const popB = popularityStats[b.id] ?? 0;
+      return popB - popA;
+    });
+
+    const participantCount = getLiveParticipantCount(deviceParticipation.reference) + liveOffset;
+
     return (
       <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50 flex flex-col font-sans select-none">
         <AnimatedBackground lowMotion={lowMotion} />
-        
-        <div className="relative z-10 flex-1 max-w-md mx-auto w-full px-6 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] flex flex-col min-h-0">
-          
-          {/* Lock Banner */}
-          <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-red-50 border border-red-200 text-red-800 shadow-sm shrink-0 mb-4">
-            <AlertTriangle className="w-4.5 h-4.5 shrink-0 text-red-600" />
-            <span className="text-[11px] font-black tracking-tight uppercase leading-none">
-              Este dispositivo ya registró una apuesta.
-            </span>
+
+        {/* Live Stats Header */}
+        <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
+          <div className="flex justify-between items-center px-6 h-16 max-w-3xl mx-auto">
+            <button className="text-slate-600 hover:bg-slate-100 transition-all active:scale-95 p-2 rounded-full flex items-center justify-center">
+              <span className="material-symbols-outlined text-[24px]">sports_score</span>
+            </button>
+            <h1 className="text-slate-800 tracking-tight italic text-[20px] sm:text-[22px] uppercase font-black">
+              Reto Memorial Live
+            </h1>
+            <button className="text-slate-600 hover:bg-slate-100 transition-all active:scale-95 p-2 rounded-full flex items-center justify-center">
+              <span className="material-symbols-outlined text-[24px]">account_circle</span>
+            </button>
           </div>
+        </header>
 
-          {/* Ticket Information & Selections */}
-          <div className="flex-1 bg-white/95 border border-slate-200 rounded-3xl p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] flex flex-col min-h-0 mb-4 overflow-hidden">
-            <div className="border-b border-slate-100 pb-3 mb-3 shrink-0 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
-                  Mi Participación
-                </p>
-                <p className="font-mono text-base font-black text-slate-900 mt-0.5 tracking-wider">
-                  Ref: {deviceParticipation.reference}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[9px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded-full px-2.5 py-0.5 uppercase tracking-wider">
-                  {deviceParticipation.selectedSlotsCount}/6 Huecos
-                </p>
-                {deviceParticipation.createdAt && (
-                  <p className="text-[9px] text-slate-400 mt-1">
-                    {new Date(deviceParticipation.createdAt).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Scrollable Selections List */}
-            <div className="flex-grow overflow-y-auto ios-scroll overscroll-contain pr-1">
-              <p className="text-[11px] font-extrabold uppercase tracking-widest text-indigo-600 mb-3 flex items-center gap-1">
-                <Flame className="w-3.5 h-3.5 text-indigo-500 fill-indigo-500 animate-pulse" /> Popularidad en directo
-              </p>
-
-              {activeEvents.map((event) => {
-                const sel = selections[event.slug];
-                const maleAthlete = getAthleteById(sel.maleId, event.slug, "male");
-                const femaleAthlete = getAthleteById(sel.femaleId, event.slug, "female");
-
-                return (
-                  <div key={event.slug} className="mb-4 last:mb-1">
-                    <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-2 flex items-center justify-between">
-                      <span>{event.name}</span>
-                      <span className="text-[9px] text-slate-400 font-bold">
-                        H {event.markToBeat.male}m / M {event.markToBeat.female}m
-                      </span>
-                    </h3>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {/* Male Athlete */}
-                      {maleAthlete ? (
-                        <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-2.5 flex flex-col gap-2 relative overflow-hidden">
-                          <div className="flex gap-2 items-center">
-                            <ProgressiveImage
-                              src={maleAthlete.image}
-                              alt={maleAthlete.name}
-                              wrapperClassName="size-8.5 rounded-xl shrink-0"
-                              className="size-full object-cover rounded-xl bg-slate-200"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-extrabold text-slate-900 truncate leading-tight">
-                                {maleAthlete.name}
-                              </p>
-                              <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">
-                                H - {ATHLETES[event.slug as keyof typeof ATHLETES].male.find(a => a.id === sel.maleId)?.mark}m
-                              </p>
-                            </div>
-                          </div>
-
-                          {(sel.winnerId === maleAthlete.id || sel.winnerId === "both") && (
-                            <div className="absolute top-1 right-1 flex items-center justify-center size-4.5 bg-amber-100 border border-amber-200 rounded-full">
-                              <Trophy className="w-2.5 h-2.5 text-amber-600 fill-amber-50" />
-                            </div>
-                          )}
-
-                          <div className="mt-1 pt-1.5 border-t border-slate-100">
-                            <div className="flex items-center justify-between text-[8.5px] font-bold text-slate-600 mb-0.5">
-                              <span className="text-[8px] text-slate-400">Popularidad</span>
-                              <span>{popularityStats[maleAthlete.id] ?? 0}%</span>
-                            </div>
-                            <div className="h-1 w-full bg-slate-200/80 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
-                                style={{ width: `${popularityStats[maleAthlete.id] ?? 0}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="border border-dashed border-slate-200 rounded-2xl p-3 flex items-center justify-center text-[9px] text-slate-400 font-bold bg-slate-50/30">
-                          Sin atleta masculino
-                        </div>
-                      )}
-
-                      {/* Female Athlete */}
-                      {femaleAthlete ? (
-                        <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-2.5 flex flex-col gap-2 relative overflow-hidden">
-                          <div className="flex gap-2 items-center">
-                            <ProgressiveImage
-                              src={femaleAthlete.image}
-                              alt={femaleAthlete.name}
-                              wrapperClassName="size-8.5 rounded-xl shrink-0"
-                              className="size-full object-cover rounded-xl bg-slate-200"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-extrabold text-slate-900 truncate leading-tight">
-                                {femaleAthlete.name}
-                              </p>
-                              <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">
-                                M - {ATHLETES[event.slug as keyof typeof ATHLETES].female.find(a => a.id === sel.femaleId)?.mark}m
-                              </p>
-                            </div>
-                          </div>
-
-                          {(sel.winnerId === femaleAthlete.id || sel.winnerId === "both") && (
-                            <div className="absolute top-1 right-1 flex items-center justify-center size-4.5 bg-amber-100 border border-amber-200 rounded-full">
-                              <Trophy className="w-2.5 h-2.5 text-amber-600 fill-amber-50" />
-                            </div>
-                          )}
-
-                          <div className="mt-1 pt-1.5 border-t border-slate-100">
-                            <div className="flex items-center justify-between text-[8.5px] font-bold text-slate-600 mb-0.5">
-                              <span className="text-[8px] text-slate-400">Popularidad</span>
-                              <span>{popularityStats[femaleAthlete.id] ?? 0}%</span>
-                            </div>
-                            <div className="h-1 w-full bg-slate-200/80 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
-                                style={{ width: `${popularityStats[femaleAthlete.id] ?? 0}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="border border-dashed border-slate-200 rounded-2xl p-3 flex items-center justify-center text-[9px] text-slate-400 font-bold bg-slate-50/30">
-                          Sin atleta femenina
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Footer Actions */}
-          <div className="shrink-0 flex flex-col gap-2.5">
+        {/* Main Stats Area */}
+        <div className="relative z-10 flex-1 max-w-3xl mx-auto w-full px-6 pt-24 pb-36 flex flex-col min-h-0">
+          {/* Tab Switcher */}
+          <div className="flex bg-slate-200/75 border border-slate-300/40 rounded-full p-1 self-center w-full max-w-md shadow-inner mb-5 shrink-0">
             <button
-              type="button"
-              onClick={() => router.push(`/confirmation/${deviceParticipation.reference}`)}
-              className="h-12 w-full rounded-full bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-md shadow-slate-200"
+              onClick={() => setDashboardEventSlug("jabalina")}
+              className={`flex-1 py-2 px-4 rounded-full text-[15px] sm:text-[16px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
+                dashboardEventSlug === "jabalina"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
             >
-              <span>Ver ticket oficial</span>
-              <ExternalLink className="w-4 h-4" />
+              Jabalina
+            </button>
+            <button
+              onClick={() => setDashboardEventSlug("disco")}
+              className={`flex-1 py-2 px-4 rounded-full text-[15px] sm:text-[16px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
+                dashboardEventSlug === "disco"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Disco
             </button>
           </div>
 
+          {/* Scrollable Leaderboard List */}
+          <div className="flex-grow overflow-y-auto ios-scroll overscroll-contain pr-1 flex flex-col gap-2.5">
+            {sortedAthletes.map((athlete, index) => {
+              const rank = index + 1;
+              const pop = popularityStats[athlete.id] ?? 0;
+              const formattedName = formatName(athlete.name);
+
+              const userSelectedThis =
+                selections[dashboardEventSlug]?.maleId === athlete.id ||
+                selections[dashboardEventSlug]?.femaleId === athlete.id;
+
+              let progressBgClass = "bg-indigo-500";
+              let rankColorClass = "text-slate-500";
+
+              if (rank === 1) {
+                rankColorClass = "text-amber-500 font-extrabold";
+                progressBgClass = "bg-amber-400";
+              } else if (rank === 2) {
+                rankColorClass = "text-slate-400 font-extrabold";
+                progressBgClass = "bg-slate-300";
+              } else if (rank === 3) {
+                rankColorClass = "text-amber-700 font-extrabold";
+                progressBgClass = "bg-amber-600";
+              } else if (rank > 5 && rank <= 8) {
+                progressBgClass = "bg-indigo-400 opacity-60";
+              }
+
+              if (rank <= 8) {
+                return (
+                  <div
+                    key={athlete.id}
+                    className={`flex items-center gap-3 py-2.5 px-3 rounded-2xl border transition-all duration-300 ${
+                      userSelectedThis
+                        ? "bg-indigo-50/50 border-indigo-200 shadow-[0_2px_8px_rgba(99,102,241,0.08)]"
+                        : "bg-white/90 border-slate-200/80 shadow-sm"
+                    }`}
+                  >
+                    <span className={`w-6 text-center text-sm font-bold ${rankColorClass}`}>{rank}</span>
+                    <span className="material-symbols-outlined text-slate-400 text-[20px]">flag</span>
+                    <span className={`w-28 text-xs font-semibold text-slate-800 truncate uppercase ${userSelectedThis ? "font-bold text-indigo-900" : ""}`}>
+                      {formattedName}
+                    </span>
+                    <div className="flex-grow h-3.5 bg-slate-100 rounded-full overflow-hidden flex relative">
+                      <div
+                        className={`h-full rounded-r-full transition-all duration-1000 ${progressBgClass}`}
+                        style={{ width: `${Math.max(4, pop)}%` }}
+                      />
+                    </div>
+                    <span className="w-12 text-right font-mono text-xs font-bold text-slate-700">{pop}%</span>
+                  </div>
+                );
+              } else {
+                const opacityClass = rank === 9 ? "opacity-60" : rank === 10 ? "opacity-40" : "opacity-25";
+                return (
+                  <div
+                    key={athlete.id}
+                    className={`flex items-center gap-3 py-2 px-3 transition-opacity ${opacityClass}`}
+                  >
+                    <span className="w-6 text-center text-xs font-semibold text-slate-400">{rank}</span>
+                    <span className="material-symbols-outlined text-slate-300 text-[18px]">flag</span>
+                    <span className="w-28 text-xs text-slate-500 truncate uppercase">{formattedName}</span>
+                    <div className="flex-grow h-3.5 bg-slate-100/50 rounded-full overflow-hidden flex relative" />
+                    <span className="w-12 text-right font-mono text-xs text-slate-400">{pop}%</span>
+                  </div>
+                );
+              }
+            })}
+          </div>
+        </div>
+
+        {/* Floating Bottom Sheet Card */}
+        <div className="fixed bottom-0 left-0 w-full z-40 bg-white/95 backdrop-blur-2xl border-t border-slate-200/80 shadow-[0_-8px_32px_0_rgba(15,23,42,0.08)] px-6 py-4 pb-safe flex justify-center">
+          <div className="w-full max-w-3xl flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold">Apuesta realizada</span>
+                  <span className="material-symbols-outlined text-[13px]">check</span>
+                </div>
+                <span className="font-mono text-xs text-slate-500 font-bold">{deviceParticipation.reference}</span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold leading-none">
+                  {participantCount.toLocaleString()} en directo
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => router.push(`/confirmation/${deviceParticipation.reference}`)}
+              className="w-full bg-slate-900 hover:bg-slate-800 transition-all text-white font-bold text-sm py-3 rounded-full shadow-md shadow-slate-200 active:scale-[0.98]"
+            >
+              Ver mi apuesta
+            </button>
+          </div>
         </div>
       </main>
     );
