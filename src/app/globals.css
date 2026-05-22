@@ -156,3 +156,90 @@
     /* Chrome, Safari and Opera */
   }
 }
+
+/* Short viewport adaptations (e.g., small mobile screens under 740px height) */
+@media (max-height: 845px) {
+  .budget-banner-desc {
+    display: none !important;
+  }
+  .athlete-slot-card {
+    aspect-ratio: 3/3.15 !important;
+  }
+  .budget-banner-container {
+    margin-bottom: 0.35rem !important;
+  }
+  .team-grid-section {
+    margin-bottom: 0.35rem !important;
+  }
+  .search-filter-row {
+    margin-bottom: 0.35rem !important;
+  }
+}
+
+@media (max-height: 760px) {
+  .main-sticky-header {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.15rem) !important;
+    padding-bottom: 0.15rem !important;
+  }
+  .main-sticky-header button {
+    width: 2rem !important;
+    height: 2rem !important;
+  }
+  .main-sticky-header .flex-1 p {
+    font-size: 11px !important;
+  }
+  .main-sticky-header div[role="progressbar"] {
+    gap: 0.15rem !important;
+  }
+  .athlete-slot-card {
+    aspect-ratio: 3/2.75 !important;
+    border-radius: 0.75rem !important;
+  }
+  .grid-gap-short {
+    gap: 0.375rem !important;
+  }
+}
+
+@media (max-height: 680px) {
+  .athlete-slot-card {
+    aspect-ratio: 3/2.3 !important;
+    border-radius: 0.6rem !important;
+  }
+  .budget-banner-card {
+    padding: 0.25rem 0.5rem !important;
+    border-radius: 0.6rem !important;
+  }
+  .budget-banner-card .text-2xl {
+    font-size: 1.125rem !important;
+    line-height: 1.25rem !important;
+  }
+  .budget-banner-container {
+    margin-bottom: 0.15rem !important;
+  }
+  .team-grid-section {
+    margin-bottom: 0.15rem !important;
+  }
+  .search-filter-row {
+    margin-bottom: 0.15rem !important;
+    padding-top: 0px !important;
+  }
+  .search-filter-row .flex.p-1 {
+    border-radius: 0.75rem !important;
+    padding: 0.15rem !important;
+  }
+  .search-filter-row button {
+    padding-top: 0.2rem !important;
+    padding-bottom: 0.2rem !important;
+    border-radius: 0.5rem !important;
+    font-size: 10px !important;
+  }
+  .search-filter-row label {
+    height: 1.75rem !important;
+    border-radius: 0.5rem !important;
+    width: 100px !important;
+  }
+  .search-filter-row input {
+    font-size: 11px !important;
+  }
+}
+

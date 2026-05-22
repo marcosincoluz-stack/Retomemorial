@@ -601,7 +601,7 @@ export default function UnifiedSelectionPage() {
 
             <div className="relative h-full flex flex-col">
                 {/* Header - Centered Layout */}
-                <header className="sticky top-0 z-50 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.25rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-0 sm:pb-1.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2">
+                <header className="sticky top-0 z-50 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.25rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-0 sm:pb-1.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2 main-sticky-header">
                     <button
                         onClick={() => {
                             if (isStepWinnerSelect) {
@@ -833,9 +833,9 @@ export default function UnifiedSelectionPage() {
                             className="flex-1 flex flex-col min-h-0"
                         >
                             {/* Budget Banner */}
-                            <div className="px-4 sm:px-6 mb-2">
+                            <div className="px-4 sm:px-6 mb-2 budget-banner-container">
                                 <div className={cn(
-                                    "rounded-2xl border p-3 flex items-center justify-between transition-all duration-500",
+                                    "rounded-2xl border p-3 flex items-center justify-between transition-all duration-500 budget-banner-card",
                                     isBudgetExceeded 
                                         ? "bg-red-50/90 border-red-200 text-red-900 shadow-md shadow-red-100 animate-pulse" 
                                         : "bg-white/90 border-slate-200 text-slate-900 shadow-sm"
@@ -844,7 +844,7 @@ export default function UnifiedSelectionPage() {
                                         <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                                             Presupuesto disponible
                                         </span>
-                                        <span className="text-xs text-slate-600 mt-0.5">
+                                        <span className="text-xs text-slate-600 mt-0.5 budget-banner-desc">
                                             {isBudgetExceeded 
                                                 ? "¡Ajusta tu equipo para no superar el límite!" 
                                                 : "Para crear tu equipo tienes 35 puntos"}
@@ -863,8 +863,8 @@ export default function UnifiedSelectionPage() {
                             </div>
 
                             {/* Team Grid - 6 independent stickers */}
-                            <section className="px-4 sm:px-6 mt-0 sm:mt-1 mb-1 sm:mb-2.5 relative z-10">
-                                <div className={cn("relative z-10 grid gap-1.5 sm:gap-3 mb-1.5 sm:mb-2", EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+                            <section className="px-4 sm:px-6 mt-0 sm:mt-1 mb-1 sm:mb-2.5 relative z-10 team-grid-section">
+                                <div className={cn("relative z-10 grid gap-1.5 sm:gap-3 mb-1.5 sm:mb-2 grid-gap-row-short", EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
                                     {EVENTS.map((event) => (
                                         <span
                                             key={event.slug}
@@ -878,7 +878,7 @@ export default function UnifiedSelectionPage() {
                                     ))}
                                 </div>
 
-                                <div className={cn("relative z-10 grid gap-2 sm:gap-3.5 [perspective:1200px]", EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+                                <div className={cn("relative z-10 grid gap-2 sm:gap-3.5 [perspective:1200px] grid-gap-short", EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
                                     {EVENTS.map((event, index) => (
                                         <AthleteSlot
                                             key={`${event.slug}-male`}
@@ -928,7 +928,7 @@ export default function UnifiedSelectionPage() {
                             </section>
 
                             {/* Gender + Search Row */}
-                            <div className="px-4 mb-1.5 sm:mb-3 pt-0.5">
+                            <div className="px-4 mb-1.5 sm:mb-3 pt-0.5 search-filter-row">
                                 <div className="flex items-center justify-between gap-2 sm:gap-3">
                                     <div className="flex p-1 bg-white/90 rounded-[16px] border border-slate-200 shadow-inner">
                                         <button
@@ -1458,7 +1458,7 @@ function AthleteSlot({
                 WebkitBackfaceVisibility: "visible",
             }}
             className={cn(
-                "aspect-[3/3.5] sm:aspect-[4/6] rounded-[14px] sm:rounded-[22px] border relative transition-all duration-500 overflow-hidden",
+                "aspect-[3/3.5] sm:aspect-[4/6] rounded-[14px] sm:rounded-[22px] border relative transition-all duration-500 overflow-hidden athlete-slot-card",
                 shouldFloat && "team-sticker",
                 shouldFloat && floatClass,
                 isClosed
