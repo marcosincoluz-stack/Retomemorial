@@ -552,16 +552,13 @@ export default function OnboardingPage() {
 
         {/* Live Stats Header */}
         <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
-          <div className="flex justify-between items-center px-6 h-16 max-w-3xl mx-auto">
-            <button className="text-slate-600 hover:bg-slate-100 transition-all active:scale-95 p-2 rounded-full flex items-center justify-center">
+          <div className="relative flex justify-center items-center px-6 h-16 max-w-3xl mx-auto">
+            <div className="absolute left-6 text-slate-600 p-2 flex items-center justify-center">
               <span className="material-symbols-outlined text-[24px]">sports_score</span>
-            </button>
+            </div>
             <h1 className="text-slate-800 tracking-tight italic text-[20px] sm:text-[22px] uppercase font-black">
               Reto Memorial Live
             </h1>
-            <button className="text-slate-600 hover:bg-slate-100 transition-all active:scale-95 p-2 rounded-full flex items-center justify-center">
-              <span className="material-symbols-outlined text-[24px]">account_circle</span>
-            </button>
           </div>
         </header>
 
