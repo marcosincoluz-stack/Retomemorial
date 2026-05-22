@@ -179,7 +179,7 @@ const shuffleArray = <T,>(values: T[]) => {
   return copy;
 };
 
-const BASE_STICKER_CARDS: StickerCard[] = ATHLETES.disco.male.map((athlete) => ({
+const BASE_STICKER_CARDS: StickerCard[] = ATHLETES.disco.male.slice(0, 3).map((athlete) => ({
   id: athlete.id,
   name: athlete.name,
   image: athlete.image,
@@ -196,7 +196,7 @@ const RANDOM_STICKER_POOL: StickerCard[] = (
     eventAthletes[genderKey]
       .filter(
         (athlete) =>
-          typeof athlete.image === "string" && athlete.image.startsWith("/")
+          typeof athlete.image === "string" && athlete.image.length > 0
       )
       .map((athlete) => ({
         id: athlete.id,

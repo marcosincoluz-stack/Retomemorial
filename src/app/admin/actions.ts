@@ -80,7 +80,7 @@ export type AdminBetDetail = {
   delivered: boolean;
   createdAt: string;
   selectedSlotsCount: number;
-  selections: Record<string, { maleId: string | null; femaleId: string | null }>;
+  selections: Record<string, { maleId: string | null; femaleId: string | null; winnerId: string | null }>;
   athletes: AthleteMeta[];
 };
 
@@ -104,6 +104,8 @@ type BetDetailResponse = {
   message?: string;
   data?: AdminBetDetail;
 };
+
+type TokenSecret = string;
 
 const ADMIN_COOKIE_NAME = "retomemorial_admin_session";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
@@ -154,15 +156,16 @@ async function hasAdminSession() {
 
 function normalizeSelectionsFromPicks(picks: PickRow[]) {
   const selections = EVENTS.reduce((acc, event) => {
-    acc[event.slug] = { maleId: null, femaleId: null };
+    acc[event.slug] = { maleId: null, femaleId: null, winnerId: null };
     return acc;
-  }, {} as Record<string, { maleId: string | null; femaleId: string | null }>);
+  }, {} as Record<string, { maleId: string | null; femaleId: string | null; winnerId: string | null }>);
 
   for (const pick of picks) {
     if (!selections[pick.event_slug]) continue;
     selections[pick.event_slug] = {
       maleId: pick.male_external_key ?? null,
       femaleId: pick.female_external_key ?? null,
+      winnerId: pick.winner_external_key ?? null,
     };
   }
 

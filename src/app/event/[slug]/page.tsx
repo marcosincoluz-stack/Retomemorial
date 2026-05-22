@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { EVENTS, ATHLETES } from "@/lib/data";
+import { useRouter, useParams } from "next/navigation";
+import { EVENTS, ATHLETES, getAthleteCost } from "@/lib/data";
 import { submitFullParticipation } from "@/app/actions";
 import { MultiStepLoader } from "@/components/ui/multi-step-loader";
 import { ShineBorder } from "@/registry/magicui/shine-border";
@@ -22,6 +22,7 @@ const loadingStates = [
 ];
 
 type AthleteSlotData = {
+    id: string;
     name: string;
     image: string;
 };
@@ -124,18 +125,40 @@ type SlotGenderKey = "male" | "female";
 
 export default function UnifiedSelectionPage() {
     const router = useRouter();
+    const params = useParams();
+    const routeSlug = params?.slug as string;
+
     const athleteListRef = useRef<HTMLElement | null>(null);
     const slotRefs = useRef<Record<string, HTMLButtonElement | null>>({});
     const burstCounterRef = useRef(0);
     const settlingTimeoutRef = useRef<number | null>(null);
 
-    const [activeEventSlug, setActiveEventSlug] = useState<string>('disco');
-    const [genderFilter, setGenderFilter] = useState<"male" | "female">("male");
+    const isEventClosed = (slug: string) => {
+        const event = EVENTS.find(e => e.slug === slug);
+        if (!event) return false;
+        const startTime = new Date(event.startTime);
+        const closeTime = new Date(startTime.getTime() + 15 * 60 * 1000);
+        return new Date() > closeTime;
+    };
 
-    const [selections, setSelections] = useState<Record<string, { maleId: string | null; femaleId: string | null }>>({
-        disco: { maleId: null, femaleId: null },
-        jabalina: { maleId: null, femaleId: null },
-        longitud: { maleId: null, femaleId: null },
+    const getInitialEventSlug = () => {
+        if (routeSlug && EVENTS.some(e => e.slug === routeSlug) && !isEventClosed(routeSlug)) {
+            return routeSlug;
+        }
+        const openEvent = EVENTS.find(e => !isEventClosed(e.slug));
+        return openEvent ? openEvent.slug : EVENTS[0].slug;
+    };
+
+    const [activeEventSlug, setActiveEventSlug] = useState<string>(getInitialEventSlug);
+    const [genderFilter, setGenderFilter] = useState<"male" | "female">("male");
+    const [isStepWinnerSelect, setIsStepWinnerSelect] = useState(false);
+
+    const [selections, setSelections] = useState<Record<string, { maleId: string | null; femaleId: string | null; winnerId: string | null }>>(() => {
+        const initial: Record<string, { maleId: string | null; femaleId: string | null; winnerId: string | null }> = {};
+        EVENTS.forEach(event => {
+            initial[event.slug] = { maleId: null, femaleId: null, winnerId: null };
+        });
+        return initial;
     });
 
     const [searchQuery, setSearchQuery] = useState("");
@@ -149,6 +172,31 @@ export default function UnifiedSelectionPage() {
 
     const activeEvent = EVENTS.find(e => e.slug === activeEventSlug) || EVENTS[0];
     const eventAthletes = ATHLETES[activeEventSlug as keyof typeof ATHLETES];
+
+    useEffect(() => {
+        if (routeSlug && EVENTS.some(e => e.slug === routeSlug)) {
+            setActiveEventSlug(routeSlug);
+        }
+    }, [routeSlug]);
+
+    useEffect(() => {
+        if (isStepWinnerSelect) {
+            setSelections(prev => {
+                const updated = { ...prev };
+                let changed = false;
+                for (const slug in updated) {
+                    if (updated[slug].winnerId === null && (updated[slug].maleId || updated[slug].femaleId)) {
+                        updated[slug] = {
+                            ...updated[slug],
+                            winnerId: "none"
+                        };
+                        changed = true;
+                    }
+                }
+                return changed ? updated : prev;
+            });
+        }
+    }, [isStepWinnerSelect]);
 
     useEffect(() => {
         return () => {
@@ -239,7 +287,7 @@ export default function UnifiedSelectionPage() {
         const startBurst = (destination: DOMRect) => {
             setSelectionBurst({
                 id: `${athleteId}-${burstCounterRef.current++}`,
-                athlete: { name: athleteName, image: athleteImage },
+                athlete: { id: athleteId, name: athleteName, image: athleteImage },
                 eventSlug,
                 genderKey,
                 athleteId,
@@ -294,6 +342,7 @@ export default function UnifiedSelectionPage() {
 
     const handleToggleAthlete = (id: string) => {
         if (selectionBurst) return;
+        if (isEventClosed(activeEventSlug)) return;
 
         const isSelecting = selectedAthleteId !== id;
 
@@ -319,6 +368,7 @@ export default function UnifiedSelectionPage() {
             } else {
                 current.femaleId = current.femaleId === id ? null : id;
             }
+            current.winnerId = null;
             return { ...prev, [activeEventSlug]: current };
         });
 
@@ -335,6 +385,31 @@ export default function UnifiedSelectionPage() {
     }, [selections]);
     const hasAnySelection = selectedSlotsCount > 0;
     const totalSlots = EVENTS.length * 2;
+
+    const totalSpentPoints = useMemo(() => {
+        return Object.entries(selections).reduce((acc, [eventSlug, selection]) => {
+            let eventCost = 0;
+            if (selection.maleId) {
+                eventCost += getAthleteCost(selection.maleId, eventSlug, "male");
+            }
+            if (selection.femaleId) {
+                eventCost += getAthleteCost(selection.femaleId, eventSlug, "female");
+            }
+            return acc + eventCost;
+        }, 0);
+    }, [selections]);
+    const maxPointsBudget = 35;
+    const remainingPoints = maxPointsBudget - totalSpentPoints;
+    const isBudgetExceeded = remainingPoints < 0;
+    const canConfirm = hasAnySelection && !isBudgetExceeded;
+
+    useEffect(() => {
+        if (isBudgetExceeded) {
+            setErrorMsg("Has superado el límite de 35 puntos.");
+        } else {
+            setErrorMsg(null);
+        }
+    }, [isBudgetExceeded]);
 
     const isPreviewSelected = useMemo(() => {
         if (!previewAthlete) return false;
@@ -384,6 +459,10 @@ export default function UnifiedSelectionPage() {
             return;
         }
         setErrorMsg(null);
+        if (!isStepWinnerSelect) {
+            setIsStepWinnerSelect(true);
+            return;
+        }
         setLoading(true);
     };
 
@@ -406,7 +485,8 @@ export default function UnifiedSelectionPage() {
     const getAthleteById = (id: string | null, event: string, gender: 'male' | 'female'): AthleteSlotData | null => {
         if (!id) return null;
         const athletes = ATHLETES[event as keyof typeof ATHLETES];
-        return athletes[gender].find(a => a.id === id) ?? null;
+        const found = athletes[gender].find(a => a.id === id);
+        return found ? { id: found.id, name: found.name, image: found.image } : null;
     };
 
     return (
@@ -472,7 +552,13 @@ export default function UnifiedSelectionPage() {
                 {/* Header - Centered Layout */}
                 <header className="sticky top-0 z-50 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.25rem)] sm:pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-0 sm:pb-1.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2">
                     <button
-                        onClick={() => router.back()}
+                        onClick={() => {
+                            if (isStepWinnerSelect) {
+                                setIsStepWinnerSelect(false);
+                            } else {
+                                router.back();
+                            }
+                        }}
                         aria-label="Volver a la pantalla anterior"
                         className="size-9 sm:size-10 flex items-center justify-center rounded-full bg-white text-slate-800 transition-all hover:bg-slate-100 border border-slate-200 active:scale-95 shadow-sm"
                     >
@@ -480,8 +566,8 @@ export default function UnifiedSelectionPage() {
                     </button>
 
                     <div className="flex-1 flex justify-center px-1">
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 text-center leading-tight">
-                            {selectedSlotsCount}/{totalSlots} huecos completos
+                        <p className="text-[12px] sm:text-[14px] font-extrabold uppercase tracking-[0.08em] text-slate-900 text-center leading-tight">
+                            {isStepWinnerSelect ? "Predicciones del Reto" : "Crear Equipo"}
                         </p>
                     </div>
 
@@ -490,221 +576,460 @@ export default function UnifiedSelectionPage() {
                         role="progressbar"
                         aria-label="Progreso de selección"
                         aria-valuemin={1}
-                        aria-valuemax={6}
-                        aria-valuenow={5}
+                        aria-valuemax={totalSlots}
+                        aria-valuenow={selectedSlotsCount}
                     >
-                        <span className="text-[10px] font-semibold text-slate-500 tracking-tight">5/6</span>
-                        <div className="flex gap-1 items-center">
-                            {[1, 2, 3, 4, 5, 6].map((dot) => (
-                                <div
-                                    key={dot}
-                                    className={cn(
-                                        "h-[3px] w-3 rounded-full transition-all duration-300",
-                                        dot <= 5 ? "bg-slate-900" : "bg-slate-300"
-                                    )}
-                                />
-                            ))}
-                        </div>
+                        {isStepWinnerSelect ? (
+                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Paso 2 de 2
+                            </span>
+                        ) : (
+                            <>
+                                <span className="text-[10px] font-semibold text-slate-500 tracking-tight">
+                                    {selectedSlotsCount}/{totalSlots}
+                                </span>
+                                <div className="flex gap-1 items-center">
+                                    {Array.from({ length: totalSlots }, (_, i) => i + 1).map((dot) => (
+                                        <div
+                                            key={dot}
+                                            className={cn(
+                                                "h-[3px] w-3 rounded-full transition-all duration-300",
+                                                dot <= selectedSlotsCount ? "bg-slate-900" : "bg-slate-300"
+                                            )}
+                                        />
+                                    ))}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </header>
 
-                {/* Team Grid - 6 independent stickers */}
-                <section className="px-4 sm:px-6 mt-0 sm:mt-1 mb-1 sm:mb-2.5 relative z-10">
-                    <div className="relative z-10 grid grid-cols-3 gap-1.5 sm:gap-3 mb-1.5 sm:mb-2">
-                        {EVENTS.map((event) => (
-                            <span
-                                key={event.slug}
-                                className={cn(
-                                    "text-[11px] sm:text-[13px] font-black uppercase tracking-[0.14em] sm:tracking-[0.22em] text-center transition-colors duration-300",
-                                    activeEventSlug === event.slug ? "text-slate-900" : "text-slate-400"
-                                )}
-                            >
-                                {event.name}
-                            </span>
-                        ))}
-                    </div>
+                <AnimatePresence mode="wait">
+                    {isStepWinnerSelect ? (
+                        <motion.div
+                            key="step2"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            transition={{ duration: 0.3 }}
+                            className="flex-1 flex flex-col min-h-0 relative z-10 overflow-y-auto ios-scroll overscroll-contain px-4 sm:px-6 pb-24 pt-2"
+                        >
+                            <div className="mb-4 text-center">
+                                <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                                    ¿Quién conseguirá el reto?
+                                </h2>
+                                <p className="text-xs text-slate-500 mt-1 max-w-[320px] mx-auto leading-relaxed">
+                                    Elige qué atletas superarán la marca del reto en cada prueba activa de tu equipo.
+                                </p>
+                            </div>
 
-                    <div className="relative z-10 grid grid-cols-3 gap-2 sm:gap-3.5 [perspective:1200px]">
-                        {EVENTS.map((event, index) => (
-                            <AthleteSlot
-                                key={`${event.slug}-male`}
-                                slotKey={`${event.slug}-male`}
-                                athlete={getAthleteById(selections[event.slug].maleId, event.slug, "male")}
-                                gender="M"
-                                eventName={event.name}
-                                isActive={activeEventSlug === event.slug && genderFilter === "male"}
-                                floatIndex={index}
-                                isSettling={settlingSlotKey === `${event.slug}-male`}
-                                slotRef={(node) => {
-                                    slotRefs.current[`${event.slug}-male`] = node;
-                                }}
-                                onClick={() => {
-                                    if (isBursting) return;
-                                    setActiveEventSlug(event.slug);
-                                    setGenderFilter("male");
-                                }}
-                                freezeMotion={isBursting}
-                                />
-                        ))}
+                            <div className="space-y-4">
+                                {EVENTS.filter(event => !isEventClosed(event.slug) && (selections[event.slug].maleId || selections[event.slug].femaleId)).map(event => {
+                                    const selection = selections[event.slug];
+                                    const maleAthlete = getAthleteById(selection.maleId, event.slug, "male");
+                                    const femaleAthlete = getAthleteById(selection.femaleId, event.slug, "female");
 
-                        {EVENTS.map((event, index) => (
-                            <AthleteSlot
-                                key={`${event.slug}-female`}
-                                slotKey={`${event.slug}-female`}
-                                athlete={getAthleteById(selections[event.slug].femaleId, event.slug, "female")}
-                                gender="F"
-                                eventName={event.name}
-                                isActive={activeEventSlug === event.slug && genderFilter === "female"}
-                                floatIndex={index + 3}
-                                isSettling={settlingSlotKey === `${event.slug}-female`}
-                                slotRef={(node) => {
-                                    slotRefs.current[`${event.slug}-female`] = node;
-                                }}
-                                onClick={() => {
-                                    if (isBursting) return;
-                                    setActiveEventSlug(event.slug);
-                                    setGenderFilter("female");
-                                }}
-                                freezeMotion={isBursting}
-                                />
-                        ))}
-                    </div>
-                </section>
+                                    const isWinnerMale = selection.winnerId === selection.maleId;
+                                    const isWinnerFemale = selection.winnerId === selection.femaleId;
+                                    const isWinnerBoth = selection.winnerId === "both";
+                                    const isWinnerNone = selection.winnerId === "none";
 
-                {/* Gender + Search Row */}
-                <div className="px-4 mb-1.5 sm:mb-3 pt-0.5">
-                    <div className="flex items-center justify-between gap-2 sm:gap-3">
-                        <div className="flex p-1 bg-white/90 rounded-[16px] border border-slate-200 shadow-inner">
-                            <button
-                                disabled={isBursting}
-                                onClick={() => setGenderFilter('male')}
-                                aria-label="Filtrar atletas masculinos"
-                                aria-pressed={genderFilter === "male"}
-                                className={cn(
-                                    "px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all duration-300 whitespace-nowrap",
-                                    genderFilter === 'male' ? "bg-slate-900 text-white shadow-md ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800"
-                                )}
-                            >
-                                Masculino
-                            </button>
-                            <button
-                                disabled={isBursting}
-                                onClick={() => setGenderFilter('female')}
-                                aria-label="Filtrar atletas femeninas"
-                                aria-pressed={genderFilter === "female"}
-                                className={cn(
-                                    "px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all duration-300 whitespace-nowrap",
-                                    genderFilter === 'female' ? "bg-slate-900 text-white shadow-md ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800"
-                                )}
-                            >
-                                Femenina
-                            </button>
-                        </div>
+                                    return (
+                                        <div key={event.slug} className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm flex flex-col gap-4">
+                                            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                        Prueba
+                                                    </span>
+                                                    <span className="text-base font-extrabold text-slate-900 tracking-tight">
+                                                        {event.name}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-col items-end">
+                                                    <span className="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                        Marcas: H {event.markToBeat.male}m / M {event.markToBeat.female}m
+                                                    </span>
+                                                </div>
+                                            </div>
 
-                        <label className="h-10 w-[120px] sm:w-[138px] rounded-[14px] border border-slate-200 bg-white flex items-center gap-1.5 px-2.5 text-slate-600 focus-within:border-slate-400 focus-within:bg-white transition-colors">
-                            <span className="sr-only">Buscar atleta</span>
-                            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <input
-                                type="search"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Buscar"
-                                aria-label="Buscar atleta por nombre"
-                                autoComplete="off"
-                                disabled={isBursting}
-                                className="w-full bg-transparent border-0 outline-none text-[16px] sm:text-[13px] text-slate-800 placeholder:text-slate-400"
-                            />
-                        </label>
-                    </div>
-                </div>
+                                            {/* Display selected athletes */}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {maleAthlete ? (
+                                                    <div className={cn(
+                                                        "border rounded-2xl p-2.5 flex items-center gap-2.5 transition-all duration-300",
+                                                        (isWinnerMale || isWinnerBoth) ? "bg-amber-50/50 border-amber-200" : "bg-slate-50/50 border-slate-100"
+                                                    )}>
+                                                        <ProgressiveImage
+                                                            src={maleAthlete.image}
+                                                            alt={maleAthlete.name}
+                                                            wrapperClassName="size-11 rounded-xl shrink-0"
+                                                            className="size-full object-cover rounded-xl"
+                                                        />
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-xs font-bold text-slate-800 truncate">{maleAthlete.name}</p>
+                                                            <p className="text-[10px] text-slate-500 font-medium">Marca: {ATHLETES[event.slug as keyof typeof ATHLETES].male.find(a => a.id === selection.maleId)?.mark}m</p>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="border border-dashed border-slate-200 bg-slate-50/50 rounded-2xl p-2.5 flex items-center justify-center text-xs text-slate-400 font-medium">
+                                                        Sin atleta masculino
+                                                    </div>
+                                                )}
 
-                {/* Athlete List Section - Bubble Cards */}
-                <section
-                    ref={athleteListRef}
-                    aria-label="Lista de atletas"
-                    className="px-4 sm:px-6 flex flex-col flex-1 min-h-0 relative z-10 overflow-y-auto ios-scroll overscroll-contain pb-20 sm:pb-24"
-                >
-                    <div className="space-y-2.5 sm:space-y-3">
-                        {filteredAthletes.map((athlete) => {
-                            const isPendingSelected = Boolean(
-                                selectionBurst &&
-                                selectionBurst.eventSlug === activeEventSlug &&
-                                selectionBurst.genderKey === genderFilter &&
-                                selectionBurst.athleteId === athlete.id
-                            );
-                            const isSelected = selectedAthleteId === athlete.id || isPendingSelected;
-                            return (
-                                <div
-                                    key={`${genderFilter}-${athlete.id}`}
-                                    onClick={() => openAthletePreview(athlete)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === "Enter" || event.key === " ") {
-                                            event.preventDefault();
-                                            openAthletePreview(athlete);
-                                        }
-                                    }}
-                                    tabIndex={0}
-                                    role="button"
-                                    aria-label={`Abrir perfil de ${athlete.name}`}
-                                    className={cn(
-                                        "p-2 sm:p-2.5 rounded-[22px] sm:rounded-[28px] flex items-center gap-2.5 sm:gap-3 bg-white/95 border transition-all duration-300 group shadow-[0_10px_24px_rgba(15,23,42,0.07)] cursor-pointer",
-                                        isSelected ? "border-slate-300 bg-white" : "border-slate-200"
-                                    )}
-                                >
-                                    <button
-                                        type="button"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            openAthletePreview(athlete);
-                                        }}
-                                        className="relative p-0.5 rounded-[18px] border border-slate-200 group-hover:border-slate-300 transition-colors"
-                                    >
-                                        <ProgressiveImage
-                                            src={athlete.image}
-                                            alt={athlete.name}
-                                            wrapperClassName="size-12 sm:size-14 rounded-[12px] sm:rounded-[14px]"
-                                            className="h-full w-full object-cover saturate-[1.12] transition-all duration-500"
-                                        />
-                                    </button>
-                                    <div className="flex-1 px-1">
-                                        <p className="font-bold text-[15px] sm:text-base leading-tight tracking-tight text-slate-900">{athlete.name}</p>
-                                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.12em] mt-1 flex items-center gap-1">
-                                            {activeEvent.name} <span className="size-1 rounded-full bg-slate-300" />{" "}
-                                            <span className="text-[12px] sm:text-[13px] text-slate-700 tracking-[0.02em]">{athlete.mark}m</span>
-                                        </p>
+                                                {femaleAthlete ? (
+                                                    <div className={cn(
+                                                        "border rounded-2xl p-2.5 flex items-center gap-2.5 transition-all duration-300",
+                                                        (isWinnerFemale || isWinnerBoth) ? "bg-amber-50/50 border-amber-200" : "bg-slate-50/50 border-slate-100"
+                                                    )}>
+                                                        <ProgressiveImage
+                                                            src={femaleAthlete.image}
+                                                            alt={femaleAthlete.name}
+                                                            wrapperClassName="size-11 rounded-xl shrink-0"
+                                                            className="size-full object-cover rounded-xl"
+                                                        />
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-xs font-bold text-slate-800 truncate">{femaleAthlete.name}</p>
+                                                            <p className="text-[10px] text-slate-500 font-medium">Marca: {ATHLETES[event.slug as keyof typeof ATHLETES].female.find(a => a.id === selection.femaleId)?.mark}m</p>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="border border-dashed border-slate-200 bg-slate-50/50 rounded-2xl p-2.5 flex items-center justify-center text-xs text-slate-400 font-medium">
+                                                        Sin atleta femenina
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Predictions Grid */}
+                                            <div className="grid grid-cols-2 gap-2 mt-1">
+                                                {maleAthlete && (
+                                                    <button
+                                                        onClick={() => setSelections(prev => ({
+                                                            ...prev,
+                                                            [event.slug]: { ...prev[event.slug], winnerId: selection.maleId }
+                                                        }))}
+                                                        className={cn(
+                                                            "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
+                                                            isWinnerMale 
+                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                                        )}
+                                                    >
+                                                        Solo {maleAthlete.name.split(" ")[0]}
+                                                    </button>
+                                                )}
+
+                                                {femaleAthlete && (
+                                                    <button
+                                                        onClick={() => setSelections(prev => ({
+                                                            ...prev,
+                                                            [event.slug]: { ...prev[event.slug], winnerId: selection.femaleId }
+                                                        }))}
+                                                        className={cn(
+                                                            "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
+                                                            isWinnerFemale 
+                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                                        )}
+                                                    >
+                                                        Solo {femaleAthlete.name.split(" ")[0]}
+                                                    </button>
+                                                )}
+
+                                                {maleAthlete && femaleAthlete && (
+                                                    <button
+                                                        onClick={() => setSelections(prev => ({
+                                                            ...prev,
+                                                            [event.slug]: { ...prev[event.slug], winnerId: "both" }
+                                                        }))}
+                                                        className={cn(
+                                                            "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
+                                                            isWinnerBoth 
+                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                                        )}
+                                                    >
+                                                        Ambos
+                                                    </button>
+                                                )}
+
+                                                <button
+                                                    onClick={() => setSelections(prev => ({
+                                                        ...prev,
+                                                        [event.slug]: { ...prev[event.slug], winnerId: "none" }
+                                                    }))}
+                                                    className={cn(
+                                                        "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
+                                                        isWinnerNone 
+                                                            ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                                    )}
+                                                >
+                                                    Ninguno
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            key="step1"
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 20 }}
+                            transition={{ duration: 0.3 }}
+                            className="flex-1 flex flex-col min-h-0"
+                        >
+                            {/* Budget Banner */}
+                            <div className="px-4 sm:px-6 mb-2">
+                                <div className={cn(
+                                    "rounded-2xl border p-3 flex items-center justify-between transition-all duration-500",
+                                    isBudgetExceeded 
+                                        ? "bg-red-50/90 border-red-200 text-red-900 shadow-md shadow-red-100 animate-pulse" 
+                                        : "bg-white/90 border-slate-200 text-slate-900 shadow-sm"
+                                )}>
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                                            Presupuesto disponible
+                                        </span>
+                                        <span className="text-xs text-slate-600 mt-0.5">
+                                            {isBudgetExceeded 
+                                                ? "¡Ajusta tu equipo para no superar el límite!" 
+                                                : "Para crear tu equipo tienes 35 puntos"}
+                                        </span>
                                     </div>
-                                    <button
-                                        disabled={Boolean(selectionBurst)}
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            handleToggleAthlete(athlete.id);
-                                        }}
-                                        aria-label={
-                                            isSelected
-                                                ? `Quitar a ${athlete.name} del equipo`
-                                                : `Añadir a ${athlete.name} al equipo`
-                                        }
-                                        className={cn(
-                                            "size-9 sm:size-10 rounded-full flex items-center justify-center transition-all duration-250 active:scale-95",
-                                            selectionBurst && "pointer-events-none opacity-60",
-                                            isSelected
-                                                ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
-                                                : "bg-white border border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
-                                        )}
-                                    >
-                                        {isSelected ? <Check className="w-5 h-5" strokeWidth={3} /> : <Plus className="w-5 h-5" strokeWidth={1.8} />}
-                                    </button>
+                                    <div className="flex items-baseline gap-1 font-mono">
+                                        <span className={cn(
+                                            "text-2xl font-black tracking-tight transition-colors duration-300",
+                                            isBudgetExceeded ? "text-red-600" : "text-slate-900"
+                                        )}>
+                                            {remainingPoints}
+                                        </span>
+                                        <span className="text-xs font-bold text-slate-500">/ 35 pts</span>
+                                    </div>
                                 </div>
-                            );
-                        })}
-                    </div>
+                            </div>
 
-                    {filteredAthletes.length === 0 && (
-                        <div className="py-20 text-center opacity-40">
-                            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No se encontraron atletas</p>
-                        </div>
+                            {/* Team Grid - 6 independent stickers */}
+                            <section className="px-4 sm:px-6 mt-0 sm:mt-1 mb-1 sm:mb-2.5 relative z-10">
+                                <div className={cn("relative z-10 grid gap-1.5 sm:gap-3 mb-1.5 sm:mb-2", EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+                                    {EVENTS.map((event) => (
+                                        <span
+                                            key={event.slug}
+                                            className={cn(
+                                                "text-[11px] sm:text-[13px] font-black uppercase tracking-[0.14em] sm:tracking-[0.22em] text-center transition-colors duration-300",
+                                                activeEventSlug === event.slug ? "text-slate-900" : "text-slate-400"
+                                            )}
+                                        >
+                                            {event.name}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                <div className={cn("relative z-10 grid gap-2 sm:gap-3.5 [perspective:1200px]", EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+                                    {EVENTS.map((event, index) => (
+                                        <AthleteSlot
+                                            key={`${event.slug}-male`}
+                                            slotKey={`${event.slug}-male`}
+                                            athlete={getAthleteById(selections[event.slug].maleId, event.slug, "male")}
+                                            gender="M"
+                                            eventName={event.name}
+                                            isActive={activeEventSlug === event.slug && genderFilter === "male"}
+                                            floatIndex={index}
+                                            isSettling={settlingSlotKey === `${event.slug}-male`}
+                                            slotRef={(node) => {
+                                                slotRefs.current[`${event.slug}-male`] = node;
+                                            }}
+                                            onClick={() => {
+                                                if (isBursting || isEventClosed(event.slug)) return;
+                                                setActiveEventSlug(event.slug);
+                                                setGenderFilter("male");
+                                            }}
+                                            freezeMotion={isBursting}
+                                            isClosed={isEventClosed(event.slug)}
+                                            />
+                                    ))}
+
+                                    {EVENTS.map((event, index) => (
+                                        <AthleteSlot
+                                            key={`${event.slug}-female`}
+                                            slotKey={`${event.slug}-female`}
+                                            athlete={getAthleteById(selections[event.slug].femaleId, event.slug, "female")}
+                                            gender="F"
+                                            eventName={event.name}
+                                            isActive={activeEventSlug === event.slug && genderFilter === "female"}
+                                            floatIndex={index + EVENTS.length}
+                                            isSettling={settlingSlotKey === `${event.slug}-female`}
+                                            slotRef={(node) => {
+                                                slotRefs.current[`${event.slug}-female`] = node;
+                                            }}
+                                            onClick={() => {
+                                                if (isBursting || isEventClosed(event.slug)) return;
+                                                setActiveEventSlug(event.slug);
+                                                setGenderFilter("female");
+                                            }}
+                                            freezeMotion={isBursting}
+                                            isClosed={isEventClosed(event.slug)}
+                                            />
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Gender + Search Row */}
+                            <div className="px-4 mb-1.5 sm:mb-3 pt-0.5">
+                                <div className="flex items-center justify-between gap-2 sm:gap-3">
+                                    <div className="flex p-1 bg-white/90 rounded-[16px] border border-slate-200 shadow-inner">
+                                        <button
+                                            disabled={isBursting}
+                                            onClick={() => setGenderFilter('male')}
+                                            aria-label="Filtrar atletas masculinos"
+                                            aria-pressed={genderFilter === "male"}
+                                            className={cn(
+                                                "px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all duration-300 whitespace-nowrap",
+                                                genderFilter === 'male' ? "bg-slate-900 text-white shadow-md ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800"
+                                            )}
+                                        >
+                                            Masculino
+                                        </button>
+                                        <button
+                                            disabled={isBursting}
+                                            onClick={() => setGenderFilter('female')}
+                                            aria-label="Filtrar atletas femeninas"
+                                            aria-pressed={genderFilter === "female"}
+                                            className={cn(
+                                                "px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all duration-300 whitespace-nowrap",
+                                                genderFilter === 'female' ? "bg-slate-900 text-white shadow-md ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800"
+                                            )}
+                                        >
+                                            Femenina
+                                        </button>
+                                    </div>
+
+                                    <label className="h-10 w-[120px] sm:w-[138px] rounded-[14px] border border-slate-200 bg-white flex items-center gap-1.5 px-2.5 text-slate-600 focus-within:border-slate-400 focus-within:bg-white transition-colors">
+                                        <span className="sr-only">Buscar atleta</span>
+                                        <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <input
+                                            type="search"
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            placeholder="Buscar"
+                                            aria-label="Buscar atleta por nombre"
+                                            autoComplete="off"
+                                            disabled={isBursting}
+                                            className="w-full bg-transparent border-0 outline-none text-[16px] sm:text-[13px] text-slate-800 placeholder:text-slate-400"
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* Athlete List Section */}
+                            {isEventClosed(activeEventSlug) ? (
+                                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                                    <div className="size-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mb-4 text-slate-400">
+                                        <Lock className="w-8 h-8" />
+                                    </div>
+                                    <h3 className="text-lg font-bold text-slate-800">Prueba Cerrada</h3>
+                                    <p className="text-sm text-slate-500 max-w-[280px] mt-1.5">
+                                        El plazo para seleccionar atletas de {activeEvent.name.toLowerCase()} ha finalizado.
+                                    </p>
+                                </div>
+                            ) : (
+                                <section
+                                    ref={athleteListRef}
+                                    aria-label="Lista de atletas"
+                                    className="px-4 sm:px-6 flex flex-col flex-1 min-h-0 relative z-10 overflow-y-auto ios-scroll overscroll-contain pb-20 sm:pb-24"
+                                >
+                                    <div className="space-y-2.5 sm:space-y-3">
+                                        {filteredAthletes.map((athlete) => {
+                                            const isPendingSelected = Boolean(
+                                                selectionBurst &&
+                                                selectionBurst.eventSlug === activeEventSlug &&
+                                                selectionBurst.genderKey === genderFilter &&
+                                                selectionBurst.athleteId === athlete.id
+                                            );
+                                            const isSelected = selectedAthleteId === athlete.id || isPendingSelected;
+                                            return (
+                                                <div
+                                                    key={`${genderFilter}-${athlete.id}`}
+                                                    onClick={() => openAthletePreview(athlete)}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key === "Enter" || event.key === " ") {
+                                                            event.preventDefault();
+                                                            openAthletePreview(athlete);
+                                                        }
+                                                    }}
+                                                    tabIndex={0}
+                                                    role="button"
+                                                    aria-label={`Abrir perfil de ${athlete.name}`}
+                                                    className={cn(
+                                                        "p-2 sm:p-2.5 rounded-[22px] sm:rounded-[28px] flex items-center gap-2.5 sm:gap-3 bg-white/95 border transition-all duration-300 group shadow-[0_10px_24px_rgba(15,23,42,0.07)] cursor-pointer",
+                                                        isSelected ? "border-slate-300 bg-white" : "border-slate-200"
+                                                    )}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            openAthletePreview(athlete);
+                                                        }}
+                                                        className="relative p-0.5 rounded-[18px] border border-slate-200 group-hover:border-slate-300 transition-colors"
+                                                    >
+                                                        <ProgressiveImage
+                                                            src={athlete.image}
+                                                            alt={athlete.name}
+                                                            wrapperClassName="size-12 sm:size-14 rounded-[12px] sm:rounded-[14px]"
+                                                            className="h-full w-full object-cover saturate-[1.12] transition-all duration-500"
+                                                        />
+                                                    </button>
+                                                    <div className="flex-1 px-1">
+                                                        <p className="font-bold text-[15px] sm:text-base leading-tight tracking-tight text-slate-900">{athlete.name}</p>
+                                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.12em] flex items-center gap-1">
+                                                                {activeEvent.name} <span className="size-1 rounded-full bg-slate-300" />{" "}
+                                                                <span className="text-[12px] sm:text-[13px] text-slate-700 tracking-[0.02em]">{athlete.mark}m</span>
+                                                            </p>
+                                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                                                {getAthleteCost(athlete.id, activeEventSlug, genderFilter)} pts
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        disabled={Boolean(selectionBurst)}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            handleToggleAthlete(athlete.id);
+                                                        }}
+                                                        aria-label={
+                                                            isSelected
+                                                                ? `Quitar a ${athlete.name} del equipo`
+                                                                : `Añadir a ${athlete.name} al equipo`
+                                                        }
+                                                        className={cn(
+                                                            "size-9 sm:size-10 rounded-full flex items-center justify-center transition-all duration-250 active:scale-95",
+                                                            selectionBurst && "pointer-events-none opacity-60",
+                                                            isSelected
+                                                                ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+                                                                : "bg-white border border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900"
+                                                        )}
+                                                    >
+                                                        {isSelected ? <Check className="w-5 h-5" strokeWidth={3} /> : <Plus className="w-5 h-5" strokeWidth={1.8} />}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {filteredAthletes.length === 0 && (
+                                        <div className="py-20 text-center opacity-40">
+                                            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No se encontraron atletas</p>
+                                        </div>
+                                    )}
+                                </section>
+                            )}
+                        </motion.div>
                     )}
-                </section>
+                </AnimatePresence>
 
                 {/* Sticky Footer CTA - Centered Pill */}
                 <div className="absolute bottom-0 inset-x-0 px-4 sm:px-8 pt-3 sm:pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.85rem)] sm:pb-[calc(env(safe-area-inset-bottom,0px)+1.1rem)] bg-gradient-to-t from-slate-50 via-slate-50/95 to-transparent z-50">
@@ -712,19 +1037,19 @@ export default function UnifiedSelectionPage() {
                         <p className="mb-3 text-center text-xs font-medium text-red-500">{errorMsg}</p>
                     )}
                     <button
-                        disabled={!hasAnySelection}
+                        disabled={isStepWinnerSelect ? false : !canConfirm}
                         onClick={handleConfirm}
-                        aria-disabled={!hasAnySelection}
-                        aria-label="Confirmar equipo"
+                        aria-disabled={isStepWinnerSelect ? false : !canConfirm}
+                        aria-label={isStepWinnerSelect ? "Enviar apuesta" : "Confirmar equipo"}
                         className={cn(
                             "w-full h-14 sm:h-14 rounded-[36px] font-black text-[15px] sm:text-[16px] uppercase tracking-[0.2em] sm:tracking-widest flex items-center justify-center gap-3 transition-all duration-500 translate-y-[6px]",
-                            hasAnySelection
-                                ? "bg-slate-900 text-white active:scale-[0.98] opacity-100"
+                            (isStepWinnerSelect || canConfirm)
+                                ? "bg-slate-900 text-white active:scale-[0.98] opacity-100 hover:bg-slate-800 cursor-pointer shadow-md"
                                 : "bg-slate-300 text-slate-500 cursor-not-allowed opacity-80"
                         )}
                     >
-                        Confirmar equipo
-                        {!hasAnySelection && <Lock className="w-4 h-4 mb-0.5" />}
+                        {isStepWinnerSelect ? "Enviar apuesta" : "Confirmar equipo"}
+                        {!isStepWinnerSelect && !canConfirm && <Lock className="w-4 h-4 mb-0.5" />}
                     </button>
                 </div>
             </div>
@@ -947,18 +1272,25 @@ export default function UnifiedSelectionPage() {
                                 </div>
 
                                 <div className="px-4 pt-4 pb-5 sm:py-6 flex flex-col gap-4 sm:gap-5">
-                                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-                                        <div className="rounded-[16px] p-3.5 sm:p-4 h-[80px] sm:h-[90px] border border-slate-200 bg-white/85 backdrop-blur-md flex flex-col justify-center gap-1">
-                                            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Mejor Marca</span>
-                                            <span className="text-[24px] sm:text-2xl font-bold text-slate-900 tracking-tight leading-none">
+                                    <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
+                                        <div className="rounded-[16px] p-2.5 sm:p-4 h-[80px] sm:h-[90px] border border-slate-200 bg-white/85 backdrop-blur-md flex flex-col justify-center gap-1">
+                                            <span className="text-[9px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">Mejor Marca</span>
+                                            <span className="text-[18px] sm:text-2xl font-bold text-slate-900 tracking-tight leading-none">
                                                 {previewAthlete.mark.toFixed(2)}
-                                                <span className="text-[16px] sm:text-lg text-slate-500">m</span>
+                                                <span className="text-[12px] sm:text-lg text-slate-500">m</span>
                                             </span>
                                         </div>
-                                        <div className="rounded-[16px] p-3.5 sm:p-4 h-[80px] sm:h-[90px] border border-slate-200 bg-white/85 backdrop-blur-md flex flex-col justify-center gap-1">
-                                            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Categoría</span>
-                                            <span className="text-[13px] sm:text-sm font-bold text-slate-900 tracking-tight leading-tight">
+                                        <div className="rounded-[16px] p-2.5 sm:p-4 h-[80px] sm:h-[90px] border border-slate-200 bg-white/85 backdrop-blur-md flex flex-col justify-center gap-1">
+                                            <span className="text-[9px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">Categoría</span>
+                                            <span className="text-[11px] sm:text-sm font-bold text-slate-900 tracking-tight leading-tight">
                                                 {previewAthlete.genderLabel === "M" ? "Masculino" : "Femenina"}
+                                            </span>
+                                        </div>
+                                        <div className="rounded-[16px] p-2.5 sm:p-4 h-[80px] sm:h-[90px] border border-amber-200 bg-amber-50/50 backdrop-blur-md flex flex-col justify-center gap-1">
+                                            <span className="text-[9px] sm:text-[11px] font-medium text-amber-700 uppercase tracking-wider">Valor</span>
+                                            <span className="text-[18px] sm:text-2xl font-bold text-amber-900 tracking-tight leading-none">
+                                                {getAthleteCost(previewAthlete.id, activeEventSlug, previewAthlete.genderKey)}
+                                                <span className="text-[12px] sm:text-lg text-amber-700 font-semibold ml-0.5">pts</span>
                                             </span>
                                         </div>
                                     </div>
@@ -1034,6 +1366,7 @@ function AthleteSlot({
     freezeMotion = false,
     slotRef,
     onClick,
+    isClosed = false,
 }: {
     slotKey: string;
     athlete: AthleteSlotData | null;
@@ -1045,27 +1378,31 @@ function AthleteSlot({
     freezeMotion?: boolean;
     slotRef?: (node: HTMLButtonElement | null) => void;
     onClick: () => void;
+    isClosed?: boolean;
 }) {
     const floatClass = ["team-sticker-a", "team-sticker-b", "team-sticker-c"][floatIndex % 3];
-    const shouldFloat = Boolean(athlete) && !isSettling;
+    const shouldFloat = Boolean(athlete) && !isSettling && !isClosed;
     const floatPhase = floatIndex % 3;
 
     return (
         <motion.button
             type="button"
-            onClick={onClick}
+            onClick={isClosed ? undefined : onClick}
             ref={slotRef}
             data-slot-key={slotKey}
+            disabled={isClosed}
             aria-label={
-                athlete
-                    ? `Editar selección de ${eventName} ${gender === "M" ? "masculino" : "femenino"}`
-                    : `Seleccionar atleta de ${eventName} ${gender === "M" ? "masculino" : "femenino"}`
+                isClosed
+                    ? `${eventName} ${gender === "M" ? "masculino" : "femenino"} - Cerrado`
+                    : athlete
+                        ? `Editar selección de ${eventName} ${gender === "M" ? "masculino" : "femenino"}`
+                        : `Seleccionar atleta de ${eventName} ${gender === "M" ? "masculino" : "femenino"}`
             }
             style={{
                 transformStyle: "preserve-3d",
                 willChange: athlete ? "transform" : undefined,
                 animationDelay: shouldFloat ? `${-(floatPhase * 1.35)}s` : undefined,
-                animationPlayState: freezeMotion || isSettling ? "paused" : "running",
+                animationPlayState: freezeMotion || isSettling || isClosed ? "paused" : "running",
                 backfaceVisibility: "visible",
                 WebkitBackfaceVisibility: "visible",
             }}
@@ -1073,16 +1410,18 @@ function AthleteSlot({
                 "aspect-[3/3.5] sm:aspect-[4/6] rounded-[14px] sm:rounded-[22px] border relative transition-all duration-500 overflow-hidden",
                 shouldFloat && "team-sticker",
                 shouldFloat && floatClass,
-                isActive
-                    ? athlete
-                        ? "border-slate-900 ring-1 ring-slate-300 z-20"
-                        : "border-transparent bg-white/45 backdrop-blur-xl backdrop-saturate-150 ring-0 z-20"
-                    : athlete
-                        ? "border-slate-300 bg-white/85 z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
-                        : "border-slate-300/90 border-dashed bg-white/45 backdrop-blur-xl backdrop-saturate-150 z-10"
+                isClosed
+                    ? "border-slate-200 bg-slate-100/60 opacity-60 cursor-not-allowed"
+                    : isActive
+                        ? athlete
+                            ? "border-slate-900 ring-1 ring-slate-300 z-20"
+                            : "border-transparent bg-white/45 backdrop-blur-xl backdrop-saturate-150 ring-0 z-20"
+                        : athlete
+                            ? "border-slate-300 bg-white/85 z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
+                            : "border-slate-300/90 border-dashed bg-white/45 backdrop-blur-xl backdrop-saturate-150 z-10"
             )}
         >
-            {!athlete && isActive && !freezeMotion && (
+            {!athlete && isActive && !freezeMotion && !isClosed && (
                 <ShineBorder
                     duration={6}
                     borderWidth={1.8}
@@ -1120,12 +1459,19 @@ function AthleteSlot({
                                         }}
                                     />
                                     <div className="absolute inset-0 rounded-[10px] bg-gradient-to-t from-slate-900/40 via-slate-900/10 to-transparent" />
+                                    {isClosed && (
+                                        <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center rounded-[10px]">
+                                            <Lock className="w-5 h-5 text-white/80" />
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
                             <div className="mt-1 flex flex-shrink-0 items-center justify-between px-1 pb-0.5 pt-0.5 font-mono text-slate-900" style={{ transform: "translateZ(24px)" }}>
                                 <div className="text-[8px] font-semibold truncate pr-1">{athlete.name.split(" ")[0]}</div>
-                                <div className="text-[8px] text-slate-500 opacity-80">#{gender}</div>
+                                <div className="text-[8px] text-slate-600 font-bold bg-amber-100 px-1 rounded-sm">
+                                    {getAthleteCost(athlete.id, slotKey.split("-")[0], gender === "M" ? "male" : "female")} pts
+                                </div>
                             </div>
                         </div>
 
@@ -1141,10 +1487,17 @@ function AthleteSlot({
                         key="empty"
                         className="absolute inset-0 flex flex-col items-center justify-center group"
                     >
-                        <div className="flex flex-col items-center gap-2 transition-all duration-500 group-hover:scale-[1.04]">
-                            <Plus className="w-6 h-6 text-slate-500/90" strokeWidth={2.6} />
-                            <span className="text-[11px] font-black text-slate-500/80 tracking-[0.18em] leading-none">{gender}</span>
-                        </div>
+                        {isClosed ? (
+                            <div className="flex flex-col items-center gap-1">
+                                <Lock className="w-5 h-5 text-slate-400" />
+                                <span className="text-[9px] font-bold text-slate-400 tracking-wider uppercase">Cerrado</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center gap-2 transition-all duration-500 group-hover:scale-[1.04]">
+                                <Plus className="w-6 h-6 text-slate-500/90" strokeWidth={2.6} />
+                                <span className="text-[11px] font-black text-slate-500/80 tracking-[0.18em] leading-none">{gender}</span>
+                            </div>
+                        )}
                     </motion.div>
                 )}
             </AnimatePresence>

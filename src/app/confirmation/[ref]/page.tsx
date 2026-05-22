@@ -3,12 +3,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getParticipation } from "@/app/actions";
-import { ATHLETES, EVENTS } from "@/lib/data";
+import { ATHLETES, EVENTS, getAthleteCost } from "@/lib/data";
 import { CheckCircle2, Download, Plus, Share2, Ticket } from "lucide-react";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import * as htmlToImage from "html-to-image";
 
-type SelectionsMap = Record<string, { maleId: string | null; femaleId: string | null }>;
+type SelectionsMap = Record<
+  string,
+  { maleId: string | null; femaleId: string | null; winnerId?: string | null }
+>;
 
 type Participation = {
   reference: string;
@@ -28,6 +31,8 @@ type TicketSlot = {
   athleteName: string;
   athleteImage: string | null;
   filled: boolean;
+  cost: number;
+  isChallengeWinner: boolean;
 };
 
 export default function ConfirmationPage() {
@@ -57,10 +62,25 @@ export default function ConfirmationPage() {
       const eventSelection = data.participation.selections[event.slug] ?? {
         maleId: null,
         femaleId: null,
+        winnerId: null,
       };
       const athletes = ATHLETES[event.slug as keyof typeof ATHLETES];
       const male = athletes.male.find((athlete) => athlete.id === eventSelection.maleId);
       const female = athletes.female.find((athlete) => athlete.id === eventSelection.femaleId);
+
+      const maleCost = male ? getAthleteCost(male.id, event.slug, "male") : 0;
+      const femaleCost = female ? getAthleteCost(female.id, event.slug, "female") : 0;
+
+      const isWinnerMale = Boolean(
+        male &&
+          eventSelection.winnerId &&
+          (eventSelection.winnerId === male.id || eventSelection.winnerId === "both")
+      );
+      const isWinnerFemale = Boolean(
+        female &&
+          eventSelection.winnerId &&
+          (eventSelection.winnerId === female.id || eventSelection.winnerId === "both")
+      );
 
       return [
         {
@@ -70,6 +90,8 @@ export default function ConfirmationPage() {
           athleteName: male?.name ?? "Sin elegir",
           athleteImage: male?.image ?? null,
           filled: Boolean(male),
+          cost: maleCost,
+          isChallengeWinner: isWinnerMale,
         },
         {
           key: `${event.slug}-F`,
@@ -78,12 +100,18 @@ export default function ConfirmationPage() {
           athleteName: female?.name ?? "Sin elegir",
           athleteImage: female?.image ?? null,
           filled: Boolean(female),
+          cost: femaleCost,
+          isChallengeWinner: isWinnerFemale,
         },
       ];
     });
   }, [data]);
 
   const completedSlotsCount = ticketSlots.filter((slot) => slot.filled).length;
+
+  const totalSpentPoints = useMemo(() => {
+    return ticketSlots.reduce((acc, slot) => acc + (slot.cost || 0), 0);
+  }, [ticketSlots]);
 
   const handleDownload = async () => {
     if (!ticketRef.current) return;
@@ -177,17 +205,26 @@ export default function ConfirmationPage() {
                   Cromos del equipo
                 </p>
                 <p className="text-[10px] font-bold text-slate-600">
-                  {completedSlotsCount}/6
+                  {completedSlotsCount}/{EVENTS.length * 2}
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid gap-2 ${EVENTS.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
                 {ticketSlots.map((slot, index) => (
                   <TicketSlotCard key={slot.key} slot={slot} index={index} />
                 ))}
               </div>
 
-              <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  Puntos gastados
+                </span>
+                <span className="text-sm font-mono font-black text-slate-900">
+                  {totalSpentPoints} / 35 pts
+                </span>
+              </div>
+
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                 <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500 text-center">
                   Referencia
                 </p>
@@ -263,6 +300,15 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
         WebkitBackfaceVisibility: "visible",
       }}
     >
+      {slot.isChallengeWinner && (
+        <div
+          className="absolute top-1.5 left-1.5 z-30 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-amber-950 text-[7px] font-black uppercase tracking-wider shadow-[0_2px_8px_rgba(245,158,11,0.4)] border border-amber-200/50"
+          style={{ transform: "translateZ(32px)" }}
+        >
+          <span>🏆</span>
+          <span>¡Reto!</span>
+        </div>
+      )}
       <div className="absolute inset-0 p-1">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(118deg,rgba(198,167,98,0.14),rgba(255,255,255,0.02)_34%,rgba(167,136,80,0.12)_67%,rgba(255,255,255,0.01))]" />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_0_1px_rgba(201,176,122,0.26)]" />
@@ -297,7 +343,9 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
             style={{ transform: "translateZ(24px)" }}
           >
             <div className="text-[8px] font-semibold truncate pr-1">{slot.athleteName.split(" ")[0]}</div>
-            <div className="text-[8px] text-slate-500 opacity-80">#{slot.gender}</div>
+            <div className="text-[8px] text-slate-600 font-bold bg-amber-100 px-1 rounded-sm">
+              {slot.cost} pts
+            </div>
           </div>
         </div>
 

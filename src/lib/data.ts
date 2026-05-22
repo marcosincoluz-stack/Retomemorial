@@ -6,8 +6,8 @@ export const EVENTS = [
         title: 'Lanzamiento de Disco',
         image: '/disco.jpg', // User provided image
         description: 'Adivina qui\u00e9n lanzar\u00e1 m\u00e1s lejos.',
-        markToBeat: { male: 62.00, female: 62.00 },
-        startTime: '2026-06-15T18:00:00',
+        markToBeat: { male: 62.00, female: 61.00 },
+        startTime: '2026-06-15T19:30:00',
     },
     {
         id: 'jabalina',
@@ -16,18 +16,8 @@ export const EVENTS = [
         title: 'Lanzamiento de Jabalina',
         image: '/jabalina.jpg', // User provided image
         description: 'La prueba de los dioses.',
-        markToBeat: { male: 78.50, female: 61.00 },
-        startTime: '2026-06-15T19:30:00',
-    },
-    {
-        id: 'longitud',
-        name: 'Longitud',
-        slug: 'longitud',
-        title: 'Salto de Longitud',
-        image: '/longitud.jpg',
-        description: '\u00bfQui\u00e9n volar\u00e1 m\u00e1s lejos?',
-        markToBeat: { male: 7.85, female: 6.50 },
-        startTime: '2026-06-15T20:00:00',
+        markToBeat: { male: 79.00, female: 61.00 },
+        startTime: '2026-06-15T18:20:00',
     },
 ];
 
@@ -39,6 +29,7 @@ export const ATHLETES = {
             { id: 'dm3', name: 'Bruno Cagigos', mark: 50.87, image: '/brunocagigos.jpg' },
             { id: 'dm4', name: 'Mykahilo Brudin', mark: 61.33, image: '/brudin.jpg' },
             { id: 'dm5', name: 'Miguel Capdepont', mark: 53.61, image: '/capdepont.jpg' },
+            { id: 'dm6', name: 'Diego Casas', mark: 62.10, image: 'https://images.unsplash.com/photo-1544033527-b192daee1f5b?q=80&w=400&auto=format&fit=crop' },
         ],
         female: [
             { id: 'df1', name: 'Nneka Naomey Ezenwa', mark: 55.49, image: '/naomeyezenwa.jpg' },
@@ -46,6 +37,7 @@ export const ATHLETES = {
             { id: 'df3', name: 'Ines Alais Tellene', mark: 44.71, image: '/inestellene.jpg' },
             { id: 'df4', name: 'Raquel Villa', mark: 42.94, image: '/raquelvilla.jpg' },
             { id: 'df5', name: 'Angela Ferreira', mark: 40.00, image: '/angelaferreira.jpg' },
+            { id: 'df6', name: 'June Kintana', mark: 56.20, image: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=400&auto=format&fit=crop' },
         ],
     },
     jabalina: {
@@ -55,6 +47,7 @@ export const ATHLETES = {
             { id: 'jm3', name: 'Rodrigo Iglesias', mark: 72.97, image: '/rodrigoiglesias.jpg' },
             { id: 'jm4', name: 'David Agudo', mark: 66.45, image: '/davidagudo.jpg' },
             { id: 'jm5', name: 'Hailu Estrampes', mark: 71.43, image: '/hailuestrampes.jpg' },
+            { id: 'jm6', name: 'Manu Quijera', mark: 79.50, image: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?q=80&w=400&auto=format&fit=crop' },
         ],
         female: [
             { id: 'jf1', name: 'Haruka Kitaguchi', mark: 67.38, image: 'https://images.unsplash.com/photo-1594882645126-14020914d58d?q=80&w=400&auto=format&fit=crop' },
@@ -62,6 +55,7 @@ export const ATHLETES = {
             { id: 'jf3', name: 'Mackenzie Little', mark: 65.70, image: 'https://images.unsplash.com/photo-1628779238951-3013b5bf5a45?q=80&w=400&auto=format&fit=crop' },
             { id: 'jf4', name: 'Kara Winger', mark: 68.11, image: 'https://images.unsplash.com/photo-1566895291253-fa587530db9c?q=80&w=400&auto=format&fit=crop' },
             { id: 'jf5', name: 'Lina Muze', mark: 64.78, image: 'https://images.unsplash.com/photo-1606041011872-596597976b25?q=80&w=400&auto=format&fit=crop' },
+            { id: 'jf6', name: 'Arantza Moreno', mark: 59.15, image: 'https://images.unsplash.com/photo-1517649763962-0c623066013b?q=80&w=400&auto=format&fit=crop' },
         ],
     },
     longitud: {
@@ -81,3 +75,14 @@ export const ATHLETES = {
         ],
     },
 };
+
+export function getAthleteCost(athleteId: string, eventSlug: string, genderKey: 'male' | 'female'): number {
+    const eventPool = ATHLETES[eventSlug as keyof typeof ATHLETES];
+    if (!eventPool) return 0;
+    const pool = eventPool[genderKey];
+    if (!pool) return 0;
+    const index = pool.findIndex((a) => a.id === athleteId);
+    if (index === -1) return 0;
+    const ranking = index + 1;
+    return ranking <= 12 ? (13 - ranking) : 1;
+}

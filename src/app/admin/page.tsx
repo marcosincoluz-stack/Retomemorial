@@ -31,8 +31,36 @@ import {
   Tooltip as RechartsTooltip,
 } from "recharts";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
+import { ATHLETES, getAthleteCost } from "@/lib/data";
 
 type AuthStatus = "loading" | "unauthenticated" | "authenticated";
+
+const findAthleteCost = (athleteId: string) => {
+  for (const [eventSlug, genders] of Object.entries(ATHLETES)) {
+    for (const [genderKey, list] of Object.entries(genders)) {
+      if (list.some(a => a.id === athleteId)) {
+        return getAthleteCost(athleteId, eventSlug, genderKey as "male" | "female");
+      }
+    }
+  }
+  return 0;
+};
+
+const isAthleteChallengeWinner = (
+  athleteId: string,
+  selections: Record<string, { maleId: string | null; femaleId: string | null; winnerId: string | null }>
+) => {
+  if (!selections) return false;
+  for (const selection of Object.values(selections)) {
+    if (selection.winnerId === "both" && (selection.maleId === athleteId || selection.femaleId === athleteId)) {
+      return true;
+    }
+    if (selection.winnerId === athleteId) {
+      return true;
+    }
+  }
+  return false;
+};
 
 export default function AdminPage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
@@ -57,6 +85,13 @@ export default function AdminPage() {
     if (!dashboard) return [];
     return dashboard.recentBets.filter((item) => !item.delivered).slice(0, 5);
   }, [dashboard]);
+
+  const searchedBetTotalSpentPoints = useMemo(() => {
+    if (!betDetail) return 0;
+    return betDetail.athletes.reduce((acc, athlete) => {
+      return acc + findAthleteCost(athlete.id);
+    }, 0);
+  }, [betDetail]);
 
   const bootstrap = async () => {
     setAuthStatus("loading");
@@ -341,16 +376,26 @@ export default function AdminPage() {
                       )}
                     </div>
 
-                    <p className="text-xs text-slate-500 mb-2">
-                      Huecos seleccionados: <b>{betDetail.selectedSlotsCount}</b>
-                    </p>
+                    <div className="flex justify-between items-center text-xs text-slate-500 mb-2">
+                      <p>
+                        Huecos seleccionados: <b>{betDetail.selectedSlotsCount}</b>
+                      </p>
+                      <p>
+                        Puntos gastados: <b className="font-mono text-slate-900">{searchedBetTotalSpentPoints} / 35</b>
+                      </p>
+                    </div>
                     <p className="text-xs text-slate-500 mb-3">
                       {new Date(betDetail.createdAt).toLocaleString()}
                     </p>
 
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       {betDetail.athletes.map((athlete) => (
-                        <div key={`${betDetail.reference}-${athlete.id}`} className="rounded-xl border border-slate-200 bg-white p-2">
+                        <div key={`${betDetail.reference}-${athlete.id}`} className="rounded-xl border border-slate-200 bg-white p-2 relative overflow-hidden">
+                          {isAthleteChallengeWinner(athlete.id, betDetail.selections) && (
+                            <div className="absolute top-0 right-0 z-10 flex items-center px-1 py-0.5 rounded-bl bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 text-[8px] font-black uppercase tracking-wider shadow border-l border-b border-amber-200/50">
+                              🏆 ¡Reto!
+                            </div>
+                          )}
                           <div className="flex items-center gap-2">
                             <ProgressiveImage
                               src={athlete.image}
@@ -360,9 +405,14 @@ export default function AdminPage() {
                             />
                             <div className="min-w-0">
                               <p className="text-xs font-bold text-slate-900 truncate">{athlete.name}</p>
-                              <p className="text-[10px] uppercase text-slate-500 font-semibold">
-                                {athlete.eventName} · {athlete.gender}
-                              </p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <p className="text-[10px] uppercase text-slate-500 font-semibold">
+                                  {athlete.eventName} · {athlete.gender}
+                                </p>
+                                <span className="inline-flex items-center px-1 rounded-sm text-[8px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                  {findAthleteCost(athlete.id)} pts
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>

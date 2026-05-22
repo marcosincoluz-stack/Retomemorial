@@ -3,10 +3,10 @@
 import { createHash } from "crypto";
 import { addMinutes, isAfter } from "date-fns";
 import { cookies } from "next/headers";
-import { EVENTS } from "@/lib/data";
+import { EVENTS, getAthleteCost } from "@/lib/data";
 import { getSupabaseServiceClient, isSupabaseConfigured } from "@/lib/supabase";
 
-export type EventSelection = { maleId: string | null; femaleId: string | null };
+export type EventSelection = { maleId: string | null; femaleId: string | null; winnerId: string | null };
 export type SelectionsMap = Record<string, EventSelection>;
 
 export type FullParticipationResult = {
@@ -43,6 +43,7 @@ type ParticipationPickRow = {
   event_slug: string;
   male_external_key: string | null;
   female_external_key: string | null;
+  winner_external_key: string | null;
 };
 
 type DeviceLockRow = {
@@ -79,10 +80,11 @@ export async function validateAndTimeCheck(eventSlug: string): Promise<{
 
 function normalizeSelections(selections: SelectionsMap): SelectionsMap {
   return EVENTS.reduce((acc, event) => {
-    const current = selections[event.slug] ?? { maleId: null, femaleId: null };
+    const current = selections[event.slug] ?? { maleId: null, femaleId: null, winnerId: null };
     acc[event.slug] = {
       maleId: current.maleId ?? null,
       femaleId: current.femaleId ?? null,
+      winnerId: current.winnerId ?? null,
     };
     return acc;
   }, {} as SelectionsMap);
@@ -90,7 +92,7 @@ function normalizeSelections(selections: SelectionsMap): SelectionsMap {
 
 function buildSelectionsFromPicks(picks: ParticipationPickRow[]): SelectionsMap {
   const normalized = EVENTS.reduce((acc, event) => {
-    acc[event.slug] = { maleId: null, femaleId: null };
+    acc[event.slug] = { maleId: null, femaleId: null, winnerId: null };
     return acc;
   }, {} as SelectionsMap);
 
@@ -99,6 +101,7 @@ function buildSelectionsFromPicks(picks: ParticipationPickRow[]): SelectionsMap 
     normalized[pick.event_slug] = {
       maleId: pick.male_external_key ?? null,
       femaleId: pick.female_external_key ?? null,
+      winnerId: pick.winner_external_key ?? null,
     };
   }
 
@@ -210,6 +213,27 @@ export async function submitFullParticipation(
     }
   }
 
+  // Validar presupuesto de puntos
+  let totalCost = 0;
+  for (const event of EVENTS) {
+    const selection = normalizedSelections[event.slug];
+    if (selection) {
+      if (selection.maleId) {
+        totalCost += getAthleteCost(selection.maleId, event.slug, "male");
+      }
+      if (selection.femaleId) {
+        totalCost += getAthleteCost(selection.femaleId, event.slug, "female");
+      }
+    }
+  }
+
+  if (totalCost > 35) {
+    return {
+      success: false,
+      message: "Has superado el límite de 35 puntos.",
+    };
+  }
+
   const reference = (await generateUniqueReference()).toUpperCase();
   const selectedSlotsCount = countSelectedSlots(normalizedSelections);
 
@@ -284,7 +308,7 @@ export async function submitFullParticipation(
       event_slug: event.slug,
       male_external_key: selection.maleId,
       female_external_key: selection.femaleId,
-      winner_external_key: null as string | null,
+      winner_external_key: selection.winnerId,
       male_athlete_id: null as string | null,
       female_athlete_id: null as string | null,
       winner_athlete_id: null as string | null,
@@ -399,7 +423,7 @@ export async function getExistingParticipationForDevice(
 
   const { data: picks, error: picksError } = await client
     .from("participation_picks")
-    .select("event_slug, male_external_key, female_external_key")
+    .select("event_slug, male_external_key, female_external_key, winner_external_key")
     .eq("participation_id", participation.id);
 
   if (picksError) {
@@ -447,7 +471,7 @@ export async function getParticipation(reference: string) {
 
   const { data: picks, error: picksError } = await client
     .from("participation_picks")
-    .select("event_slug, male_external_key, female_external_key")
+    .select("event_slug, male_external_key, female_external_key, winner_external_key")
     .eq("participation_id", participation.id);
 
   if (picksError) {
