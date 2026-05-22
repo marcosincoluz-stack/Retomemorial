@@ -392,8 +392,9 @@ export default function AdminPage() {
                       {betDetail.athletes.map((athlete) => (
                         <div key={`${betDetail.reference}-${athlete.id}`} className="rounded-xl border border-slate-200 bg-white p-2 relative overflow-hidden">
                           {isAthleteChallengeWinner(athlete.id, betDetail.selections) && (
-                            <div className="absolute top-0 right-0 z-10 flex items-center px-1 py-0.5 rounded-bl bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 text-[8px] font-black uppercase tracking-wider shadow border-l border-b border-amber-200/50">
-                              🏆 ¡Reto!
+                            <div className="absolute top-0 right-0 z-10 flex items-center gap-0.5 px-1 py-0.5 rounded-bl bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 text-[8px] font-black uppercase tracking-wider shadow border-l border-b border-amber-200/50">
+                              <Trophy className="w-2.5 h-2.5" />
+                              <span>¡Reto!</span>
                             </div>
                           )}
                           <div className="flex items-center gap-2">

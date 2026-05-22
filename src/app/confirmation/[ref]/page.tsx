@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getParticipation } from "@/app/actions";
 import { ATHLETES, EVENTS, getAthleteCost } from "@/lib/data";
-import { CheckCircle2, Download, Plus, Share2, Ticket } from "lucide-react";
+import { CheckCircle2, Download, Plus, Share2, Ticket, Trophy } from "lucide-react";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import * as htmlToImage from "html-to-image";
 
@@ -302,10 +302,10 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
     >
       {slot.isChallengeWinner && (
         <div
-          className="absolute top-1.5 left-1.5 z-30 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-amber-950 text-[7px] font-black uppercase tracking-wider shadow-[0_2px_8px_rgba(245,158,11,0.4)] border border-amber-200/50"
+          className="absolute top-1.5 left-1.5 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-amber-950 text-[7px] font-black uppercase tracking-wider shadow-[0_2px_8px_rgba(245,158,11,0.4)] border border-amber-200/50"
           style={{ transform: "translateZ(32px)" }}
         >
-          <span>🏆</span>
+          <Trophy className="w-2.5 h-2.5" strokeWidth={3} />
           <span>¡Reto!</span>
         </div>
       )}
