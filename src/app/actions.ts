@@ -507,3 +507,62 @@ export async function markDelivered(reference: string) {
 
   return !error;
 }
+
+export async function getAthletePopularityStats(): Promise<Record<string, number>> {
+  if (!isSupabaseConfigured()) {
+    return {
+      dm1: 28, dm2: 42, dm3: 8, dm4: 15, dm5: 7,
+      df1: 35, df2: 25, df3: 15, df4: 15, df5: 10,
+      jm1: 40, jm2: 30, jm3: 12, jm4: 10, jm5: 8,
+      jf1: 38, jf2: 24, jf3: 18, jf4: 12, jf5: 8,
+    };
+  }
+
+  try {
+    const client = getSupabaseServiceClient();
+    const { data: picks, error } = await client
+      .from("participation_picks")
+      .select("event_slug, male_external_key, female_external_key");
+
+    if (error || !picks) {
+      return {};
+    }
+
+    const counts: Record<string, number> = {};
+    const poolTotals: Record<string, number> = {};
+
+    picks.forEach((pick) => {
+      const event = pick.event_slug;
+      if (pick.male_external_key) {
+        const poolKey = `${event}-male`;
+        counts[pick.male_external_key] = (counts[pick.male_external_key] || 0) + 1;
+        poolTotals[poolKey] = (poolTotals[poolKey] || 0) + 1;
+      }
+      if (pick.female_external_key) {
+        const poolKey = `${event}-female`;
+        counts[pick.female_external_key] = (counts[pick.female_external_key] || 0) + 1;
+        poolTotals[poolKey] = (poolTotals[poolKey] || 0) + 1;
+      }
+    });
+
+    const stats: Record<string, number> = {};
+    picks.forEach((pick) => {
+      const event = pick.event_slug;
+      if (pick.male_external_key) {
+        const poolKey = `${event}-male`;
+        const total = poolTotals[poolKey] || 1;
+        stats[pick.male_external_key] = Math.round((counts[pick.male_external_key] / total) * 100);
+      }
+      if (pick.female_external_key) {
+        const poolKey = `${event}-female`;
+        const total = poolTotals[poolKey] || 1;
+        stats[pick.female_external_key] = Math.round((counts[pick.female_external_key] / total) * 100);
+      }
+    });
+
+    return stats;
+  } catch (err) {
+    console.error("Error fetching popularity stats:", err);
+    return {};
+  }
+}

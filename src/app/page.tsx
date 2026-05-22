@@ -3,11 +3,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { ATHLETES } from "@/lib/data";
-import { getExistingParticipationForDevice } from "@/app/actions";
+import { ATHLETES, EVENTS } from "@/lib/data";
+import { getExistingParticipationForDevice, getAthletePopularityStats } from "@/app/actions";
 import { CometCard } from "@/components/ui/comet-card";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { getOrCreateDeviceId } from "@/lib/device-id";
+import { Flame, Trophy, ExternalLink, AlertTriangle } from "lucide-react";
 
 const AnimatedBackground = ({ lowMotion }: { lowMotion: boolean }) => {
   if (lowMotion) {
@@ -162,6 +163,7 @@ type DeviceParticipationSummary = {
   reference: string;
   selectedSlotsCount: number;
   createdAt?: string;
+  selections?: Record<string, { maleId: string | null; femaleId: string | null; winnerId: string | null }>;
 };
 
 const EVENT_LABELS: Record<keyof typeof ATHLETES, string> = {
@@ -224,6 +226,7 @@ export default function OnboardingPage() {
   const [checkingDeviceLock, setCheckingDeviceLock] = useState(true);
   const [deviceParticipation, setDeviceParticipation] =
     useState<DeviceParticipationSummary | null>(null);
+  const [popularityStats, setPopularityStats] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 900px), (pointer: coarse)");
@@ -248,7 +251,13 @@ export default function OnboardingPage() {
             reference: result.reference,
             selectedSlotsCount: result.selectedSlotsCount ?? 0,
             createdAt: result.createdAt,
+            selections: result.selections,
           });
+
+          const stats = await getAthletePopularityStats();
+          if (!cancelled) {
+            setPopularityStats(stats);
+          }
         }
       } catch {
         // If lookup fails, keep onboarding available.
@@ -448,51 +457,185 @@ export default function OnboardingPage() {
   }
 
   if (deviceParticipation) {
-    return (
-      <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50">
-        <AnimatedBackground lowMotion={lowMotion} />
-        <div className="relative z-10 h-full max-w-md mx-auto px-6 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)] flex flex-col">
-          <div className="rounded-3xl border border-slate-200 bg-white/90 shadow-[0_20px_60px_rgba(15,23,42,0.1)] p-6 mt-auto mb-auto">
-            <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
-              Apuesta ya registrada
-            </p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900">
-              Ya participaste con este dispositivo
-            </h1>
-            <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-              Solo se permite una apuesta por dispositivo.
-            </p>
+    const selections = deviceParticipation.selections || {};
+    const activeEvents = EVENTS.filter((e) => {
+      const sel = selections[e.slug];
+      return sel && (sel.maleId || sel.femaleId);
+    });
 
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
-                Referencia
-              </p>
-              <p className="mt-1 font-mono text-lg font-black text-slate-900 tracking-[0.08em]">
-                {deviceParticipation.reference}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Huecos seleccionados:{" "}
-                <span className="font-bold text-slate-700">
-                  {deviceParticipation.selectedSlotsCount}/6
-                </span>
-              </p>
-              {deviceParticipation.createdAt && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Registrada: {new Date(deviceParticipation.createdAt).toLocaleString()}
+    const getAthleteById = (id: string | null, event: string, gender: "male" | "female") => {
+      if (!id) return null;
+      const eventAthletes = ATHLETES[event as keyof typeof ATHLETES];
+      if (!eventAthletes) return null;
+      const found = eventAthletes[gender].find((a) => a.id === id);
+      return found ? { id: found.id, name: found.name, image: found.image } : null;
+    };
+
+    return (
+      <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50 flex flex-col font-sans select-none">
+        <AnimatedBackground lowMotion={lowMotion} />
+        
+        <div className="relative z-10 flex-1 max-w-md mx-auto w-full px-6 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] flex flex-col min-h-0">
+          
+          {/* Lock Banner */}
+          <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-red-50 border border-red-200 text-red-800 shadow-sm shrink-0 mb-4">
+            <AlertTriangle className="w-4.5 h-4.5 shrink-0 text-red-600" />
+            <span className="text-[11px] font-black tracking-tight uppercase leading-none">
+              Este dispositivo ya registró una apuesta.
+            </span>
+          </div>
+
+          {/* Ticket Information & Selections */}
+          <div className="flex-1 bg-white/95 border border-slate-200 rounded-3xl p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)] flex flex-col min-h-0 mb-4 overflow-hidden">
+            <div className="border-b border-slate-100 pb-3 mb-3 shrink-0 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+                  Mi Participación
                 </p>
-              )}
+                <p className="font-mono text-base font-black text-slate-900 mt-0.5 tracking-wider">
+                  Ref: {deviceParticipation.reference}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] text-slate-500 font-bold bg-slate-100 border border-slate-200 rounded-full px-2.5 py-0.5 uppercase tracking-wider">
+                  {deviceParticipation.selectedSlotsCount}/6 Huecos
+                </p>
+                {deviceParticipation.createdAt && (
+                  <p className="text-[9px] text-slate-400 mt-1">
+                    {new Date(deviceParticipation.createdAt).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Scrollable Selections List */}
+            <div className="flex-grow overflow-y-auto ios-scroll overscroll-contain pr-1">
+              <p className="text-[11px] font-extrabold uppercase tracking-widest text-indigo-600 mb-3 flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-indigo-500 fill-indigo-500 animate-pulse" /> Popularidad en directo
+              </p>
+
+              {activeEvents.map((event) => {
+                const sel = selections[event.slug];
+                const maleAthlete = getAthleteById(sel.maleId, event.slug, "male");
+                const femaleAthlete = getAthleteById(sel.femaleId, event.slug, "female");
+
+                return (
+                  <div key={event.slug} className="mb-4 last:mb-1">
+                    <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-2 flex items-center justify-between">
+                      <span>{event.name}</span>
+                      <span className="text-[9px] text-slate-400 font-bold">
+                        H {event.markToBeat.male}m / M {event.markToBeat.female}m
+                      </span>
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {/* Male Athlete */}
+                      {maleAthlete ? (
+                        <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-2.5 flex flex-col gap-2 relative overflow-hidden">
+                          <div className="flex gap-2 items-center">
+                            <ProgressiveImage
+                              src={maleAthlete.image}
+                              alt={maleAthlete.name}
+                              wrapperClassName="size-8.5 rounded-xl shrink-0"
+                              className="size-full object-cover rounded-xl bg-slate-200"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-extrabold text-slate-900 truncate leading-tight">
+                                {maleAthlete.name}
+                              </p>
+                              <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">
+                                H - {ATHLETES[event.slug as keyof typeof ATHLETES].male.find(a => a.id === sel.maleId)?.mark}m
+                              </p>
+                            </div>
+                          </div>
+
+                          {(sel.winnerId === maleAthlete.id || sel.winnerId === "both") && (
+                            <div className="absolute top-1 right-1 flex items-center justify-center size-4.5 bg-amber-100 border border-amber-200 rounded-full">
+                              <Trophy className="w-2.5 h-2.5 text-amber-600 fill-amber-50" />
+                            </div>
+                          )}
+
+                          <div className="mt-1 pt-1.5 border-t border-slate-100">
+                            <div className="flex items-center justify-between text-[8.5px] font-bold text-slate-600 mb-0.5">
+                              <span className="text-[8px] text-slate-400">Popularidad</span>
+                              <span>{popularityStats[maleAthlete.id] ?? 0}%</span>
+                            </div>
+                            <div className="h-1 w-full bg-slate-200/80 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
+                                style={{ width: `${popularityStats[maleAthlete.id] ?? 0}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-slate-200 rounded-2xl p-3 flex items-center justify-center text-[9px] text-slate-400 font-bold bg-slate-50/30">
+                          Sin atleta masculino
+                        </div>
+                      )}
+
+                      {/* Female Athlete */}
+                      {femaleAthlete ? (
+                        <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-2.5 flex flex-col gap-2 relative overflow-hidden">
+                          <div className="flex gap-2 items-center">
+                            <ProgressiveImage
+                              src={femaleAthlete.image}
+                              alt={femaleAthlete.name}
+                              wrapperClassName="size-8.5 rounded-xl shrink-0"
+                              className="size-full object-cover rounded-xl bg-slate-200"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-extrabold text-slate-900 truncate leading-tight">
+                                {femaleAthlete.name}
+                              </p>
+                              <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">
+                                M - {ATHLETES[event.slug as keyof typeof ATHLETES].female.find(a => a.id === sel.femaleId)?.mark}m
+                              </p>
+                            </div>
+                          </div>
+
+                          {(sel.winnerId === femaleAthlete.id || sel.winnerId === "both") && (
+                            <div className="absolute top-1 right-1 flex items-center justify-center size-4.5 bg-amber-100 border border-amber-200 rounded-full">
+                              <Trophy className="w-2.5 h-2.5 text-amber-600 fill-amber-50" />
+                            </div>
+                          )}
+
+                          <div className="mt-1 pt-1.5 border-t border-slate-100">
+                            <div className="flex items-center justify-between text-[8.5px] font-bold text-slate-600 mb-0.5">
+                              <span className="text-[8px] text-slate-400">Popularidad</span>
+                              <span>{popularityStats[femaleAthlete.id] ?? 0}%</span>
+                            </div>
+                            <div className="h-1 w-full bg-slate-200/80 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
+                                style={{ width: `${popularityStats[femaleAthlete.id] ?? 0}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-dashed border-slate-200 rounded-2xl p-3 flex items-center justify-center text-[9px] text-slate-400 font-bold bg-slate-50/30">
+                          Sin atleta femenina
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3">
+          {/* Footer Actions */}
+          <div className="shrink-0 flex flex-col gap-2.5">
             <button
               type="button"
               onClick={() => router.push(`/confirmation/${deviceParticipation.reference}`)}
-              className="h-12 rounded-full bg-slate-900 text-white font-semibold text-base active:scale-[0.98]"
+              className="h-12 w-full rounded-full bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-md shadow-slate-200"
             >
-              Ver mi ticket
+              <span>Ver ticket oficial</span>
+              <ExternalLink className="w-4 h-4" />
             </button>
           </div>
+
         </div>
       </main>
     );

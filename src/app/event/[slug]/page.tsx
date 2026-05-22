@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { EVENTS, ATHLETES, getAthleteCost } from "@/lib/data";
-import { submitFullParticipation } from "@/app/actions";
+import { submitFullParticipation, getExistingParticipationForDevice } from "@/app/actions";
 import { MultiStepLoader } from "@/components/ui/multi-step-loader";
 import { ShineBorder } from "@/registry/magicui/shine-border";
 import { Highlighter } from "@/registry/magicui/highlighter";
@@ -169,6 +169,32 @@ export default function UnifiedSelectionPage() {
     const [previewAthlete, setPreviewAthlete] = useState<AthletePreviewData | null>(null);
     const [showCreateTeamHint, setShowCreateTeamHint] = useState(true);
     const [showHintSubtitleUnderline, setShowHintSubtitleUnderline] = useState(false);
+    const [checkingDeviceLock, setCheckingDeviceLock] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const runDeviceCheck = async () => {
+            try {
+                const deviceId = await getOrCreateDeviceId();
+                const result = await getExistingParticipationForDevice(deviceId ?? undefined);
+                if (cancelled) return;
+
+                if (result.found && result.reference) {
+                    router.replace("/");
+                } else {
+                    setCheckingDeviceLock(false);
+                }
+            } catch {
+                setCheckingDeviceLock(false);
+            }
+        };
+
+        void runDeviceCheck();
+        return () => {
+            cancelled = true;
+        };
+    }, [router]);
 
     const activeEvent = EVENTS.find(e => e.slug === activeEventSlug) || EVENTS[0];
     const eventAthletes = ATHLETES[activeEventSlug as keyof typeof ATHLETES];
@@ -488,6 +514,19 @@ export default function UnifiedSelectionPage() {
         const found = athletes[gender].find(a => a.id === id);
         return found ? { id: found.id, name: found.name, image: found.image } : null;
     };
+
+    if (checkingDeviceLock) {
+        return (
+            <main className="h-[100dvh] w-full relative overflow-hidden bg-slate-50">
+                <div className="relative z-10 h-full max-w-md mx-auto px-6 flex flex-col items-center justify-center text-center">
+                    <div className="h-8 w-8 rounded-full border-2 border-slate-300 border-t-slate-900 animate-spin" />
+                    <p className="mt-4 text-sm font-semibold uppercase tracking-[0.14em] text-slate-600 animate-pulse">
+                        Verificando dispositivo...
+                    </p>
+                </div>
+            </main>
+        );
+    }
 
     return (
         <main className="h-[100dvh] bg-slate-50 text-slate-900 font-sans antialiased selection:bg-slate-200 overflow-hidden overscroll-none">
