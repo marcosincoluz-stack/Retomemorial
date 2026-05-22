@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { EVENTS, ATHLETES, getAthleteCost } from "@/lib/data";
-import { submitFullParticipation, getExistingParticipationForDevice } from "@/app/actions";
+import { submitFullParticipation, isDeviceLocked } from "@/app/actions";
 import { MultiStepLoader } from "@/components/ui/multi-step-loader";
 import { ShineBorder } from "@/registry/magicui/shine-border";
 import { Highlighter } from "@/registry/magicui/highlighter";
@@ -176,17 +176,24 @@ export default function UnifiedSelectionPage() {
 
         const runDeviceCheck = async () => {
             try {
-                const deviceId = await getOrCreateDeviceId();
-                const result = await getExistingParticipationForDevice(deviceId ?? undefined);
+                const locked = await isDeviceLocked();
                 if (cancelled) return;
 
-                if (result.found && result.reference) {
+                if (locked) {
                     router.replace("/");
                 } else {
                     setCheckingDeviceLock(false);
                 }
             } catch {
-                setCheckingDeviceLock(false);
+                // On error, still try the check — don't let users through silently
+                try {
+                    const locked = await isDeviceLocked();
+                    if (!cancelled && locked) {
+                        router.replace("/");
+                        return;
+                    }
+                } catch { /* fallthrough */ }
+                if (!cancelled) setCheckingDeviceLock(false);
             }
         };
 

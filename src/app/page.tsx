@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { ATHLETES, EVENTS } from "@/lib/data";
-import { getExistingParticipationForDevice, getAthletePopularityStats } from "@/app/actions";
+import { getExistingParticipationForDevice, getAthletePopularityStats, isDeviceLocked } from "@/app/actions";
 import { CometCard } from "@/components/ui/comet-card";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { getOrCreateDeviceId } from "@/lib/device-id";
@@ -242,25 +242,48 @@ export default function OnboardingPage() {
 
     const runDeviceCheck = async () => {
       try {
-        const deviceId = await getOrCreateDeviceId();
-        const result = await getExistingParticipationForDevice(deviceId ?? undefined);
+        // Fast cookie-only check first — most reliable
+        const locked = await isDeviceLocked();
         if (cancelled) return;
 
-        if (result.found && result.reference) {
-          setDeviceParticipation({
-            reference: result.reference,
-            selectedSlotsCount: result.selectedSlotsCount ?? 0,
-            createdAt: result.createdAt,
-            selections: result.selections,
-          });
+        if (locked) {
+          // Cookie confirms device has a bet — now fetch the full details
+          try {
+            const deviceId = await getOrCreateDeviceId();
+            const result = await getExistingParticipationForDevice(deviceId ?? undefined);
+            if (cancelled) return;
 
-          const stats = await getAthletePopularityStats();
-          if (!cancelled) {
-            setPopularityStats(stats);
+            if (result.found && result.reference) {
+              setDeviceParticipation({
+                reference: result.reference,
+                selectedSlotsCount: result.selectedSlotsCount ?? 0,
+                createdAt: result.createdAt,
+                selections: result.selections,
+              });
+
+              const stats = await getAthletePopularityStats();
+              if (!cancelled) {
+                setPopularityStats(stats);
+              }
+            } else {
+              // Cookie exists but DB data missing — still block with minimal info
+              setDeviceParticipation({
+                reference: "—",
+                selectedSlotsCount: 0,
+              });
+            }
+          } catch {
+            // DB fetch failed but cookie confirmed lock — block with minimal info
+            if (!cancelled) {
+              setDeviceParticipation({
+                reference: "—",
+                selectedSlotsCount: 0,
+              });
+            }
           }
         }
       } catch {
-        // If lookup fails, keep onboarding available.
+        // Cookie check itself failed — allow through (resilience)
       } finally {
         if (!cancelled) setCheckingDeviceLock(false);
       }

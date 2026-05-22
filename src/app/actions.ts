@@ -57,6 +57,15 @@ const DEVICE_LOCK_COOKIE = "rm_device_lock";
 const DEVICE_LOCK_SECRET =
   process.env.DEVICE_LOCK_SECRET ?? "retomemorial-device-lock";
 
+/**
+ * Lightweight check: only verifies if the device-lock cookie exists.
+ * No DB queries — extremely fast and reliable for guards/redirects.
+ */
+export async function isDeviceLocked(): Promise<boolean> {
+  const cookieStore = await cookies();
+  return Boolean(cookieStore.get(DEVICE_LOCK_COOKIE)?.value);
+}
+
 export async function validateAndTimeCheck(eventSlug: string): Promise<{
   allowed: boolean;
   reason?: string;
