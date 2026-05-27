@@ -5,8 +5,8 @@ import fs from "fs";
 import path from "path";
 import { addMinutes, isAfter } from "date-fns";
 import { cookies } from "next/headers";
-import { EVENTS, getAthleteCost } from "@/lib/data";
-import { getSupabaseServiceClient, isSupabaseConfigured } from "@/lib/supabase";
+import { EVENTS, getAthleteCost, ATHLETES, type AthletesByEvent, type AthleteWithMeta, type AthleteHighlightData } from "@/lib/data";
+import { getSupabaseServiceClient, isSupabaseConfigured, fetchAthletesFromDB, fetchAthletesWithMetaFromDB } from "@/lib/supabase";
 
 export type EventSelection = { maleId: string | null; femaleId: string | null; winnerId: string | null };
 export type SelectionsMap = Record<string, EventSelection>;
@@ -32,6 +32,7 @@ type ParticipationRecord = {
   delivered: boolean;
   createdAt: string;
   selectedSlotsCount: number;
+  nickname?: string;
 };
 
 type ParticipationRow = {
@@ -40,6 +41,7 @@ type ParticipationRow = {
   delivered: boolean;
   created_at: string;
   selected_slots_count: number;
+  nickname?: string | null;
 };
 
 type ParticipationPickRow = {
@@ -223,7 +225,8 @@ async function generateUniqueReference() {
 
 export async function submitFullParticipation(
   selections: SelectionsMap,
-  rawDeviceId?: string
+  rawDeviceId?: string,
+  nickname?: string
 ): Promise<FullParticipationResult> {
   const cookieStore = await cookies();
   if (cookieStore.get(DEVICE_LOCK_COOKIE)?.value) {
@@ -295,12 +298,15 @@ export async function submitFullParticipation(
       };
     }
 
+    const sanitizedNickname = nickname?.trim().slice(0, 15) || undefined;
+
     db.participations[reference] = {
       reference,
       selections: normalizedSelections,
       delivered: false,
       createdAt: new Date().toISOString(),
       selectedSlotsCount,
+      nickname: sanitizedNickname,
     };
     db.deviceLocks[deviceHash] = reference;
     writeMockDb(db);
@@ -336,12 +342,15 @@ export async function submitFullParticipation(
     };
   }
 
+  const sanitizedNickname = nickname?.trim().slice(0, 15) || null;
+
   const { data: participation, error: insertParticipationError } = await client
     .from("participations")
     .insert({
       reference,
       delivered: false,
       selected_slots_count: selectedSlotsCount,
+      nickname: sanitizedNickname,
     })
     .select("id")
     .single();
@@ -634,4 +643,38 @@ export async function getAthletePopularityStats(): Promise<Record<string, number
     console.error("Error fetching popularity stats:", err);
     return {};
   }
+}
+
+export async function getAthletesData(): Promise<AthletesByEvent> {
+  const dbAthletes = await fetchAthletesFromDB();
+  if (dbAthletes) {
+    for (const event of EVENTS) {
+      if (!dbAthletes[event.slug]) {
+        dbAthletes[event.slug] = ATHLETES[event.slug] ?? { male: [], female: [] };
+      }
+      if (!dbAthletes[event.slug].male.length && ATHLETES[event.slug]) {
+        dbAthletes[event.slug].male = ATHLETES[event.slug].male;
+      }
+      if (!dbAthletes[event.slug].female.length && ATHLETES[event.slug]) {
+        dbAthletes[event.slug].female = ATHLETES[event.slug].female;
+      }
+    }
+    return dbAthletes;
+  }
+  return ATHLETES;
+}
+
+export async function getAthletesWithMetaData(): Promise<{
+  athletes: AthletesByEvent;
+  meta: AthleteWithMeta[];
+}> {
+  const [dbAthletes, dbMeta] = await Promise.all([
+    fetchAthletesFromDB(),
+    fetchAthletesWithMetaFromDB(),
+  ]);
+
+  const athletes = dbAthletes ?? ATHLETES;
+  const meta = dbMeta ?? [];
+
+  return { athletes, meta };
 }

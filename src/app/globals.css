@@ -163,7 +163,7 @@
     display: none !important;
   }
   .athlete-slot-card {
-    aspect-ratio: 3/3.15 !important;
+    aspect-ratio: 3/2.7 !important;
   }
   .budget-banner-container {
     margin-bottom: 0.35rem !important;
@@ -178,9 +178,6 @@
   /* Confirmation Page */
   .conf-header-desc {
     display: none !important;
-  }
-  .conf-slot-card {
-    aspect-ratio: 3/3.15 !important;
   }
   .conf-ticket-card {
     padding: 0.5rem 0.75rem !important;
@@ -203,7 +200,7 @@
     gap: 0.15rem !important;
   }
   .athlete-slot-card {
-    aspect-ratio: 3/2.75 !important;
+    aspect-ratio: 3/2.45 !important;
     border-radius: 0.75rem !important;
   }
   .grid-gap-short {
@@ -214,10 +211,6 @@
   .conf-header-icon {
     display: none !important;
   }
-  .conf-slot-card {
-    aspect-ratio: 3/2.75 !important;
-    border-radius: 0.75rem !important;
-  }
   .conf-points-banner, .conf-ref-box {
     padding: 0.375rem 0.5rem !important;
     margin-top: 0.375rem !important;
@@ -226,7 +219,7 @@
 
 @media (max-height: 680px) {
   .athlete-slot-card {
-    aspect-ratio: 3/2.3 !important;
+    aspect-ratio: 3/2.15 !important;
     border-radius: 0.6rem !important;
   }
   .budget-banner-card {
@@ -270,10 +263,6 @@
   .conf-header-section {
     display: none !important;
   }
-  .conf-slot-card {
-    aspect-ratio: 3/2.3 !important;
-    border-radius: 0.6rem !important;
-  }
   .conf-barcode-graphic {
     display: none !important;
   }
@@ -287,5 +276,13 @@
   .conf-footer button {
     height: 2.25rem !important;
   }
+}
+
+/* Disable 3D transforms, floating animations, and hardware acceleration layer isolation during image capture */
+.downloading .team-sticker {
+  animation: none !important;
+  transform: none !important;
+  transform-style: flat !important;
+  will-change: auto !important;
 }
 

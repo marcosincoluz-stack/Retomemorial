@@ -2,10 +2,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getParticipation } from "@/app/actions";
-import { ATHLETES, EVENTS, getAthleteCost } from "@/lib/data";
+import { getParticipation, getAthletesData } from "@/app/actions";
+import { ATHLETES, EVENTS, getAthleteCost, type AthletesByEvent } from "@/lib/data";
 import { CheckCircle2, Download, Plus, Share2, Ticket, Trophy } from "lucide-react";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
+import { getLeaderboard, type LeaderboardEntry, type LeaderboardMeta } from "@/app/admin/actions";
 import * as htmlToImage from "html-to-image";
 
 type SelectionsMap = Record<
@@ -35,6 +36,14 @@ type TicketSlot = {
   isChallengeWinner: boolean;
 };
 
+const DEFAULT_LEADERBOARD_META: LeaderboardMeta = {
+  resultsComplete: false,
+  winnersCutoff: 10,
+  resultsStatus: "pending",
+  completedResults: 0,
+  expectedResults: 0,
+};
+
 export default function ConfirmationPage() {
   const params = useParams();
   const router = useRouter();
@@ -42,13 +51,33 @@ export default function ConfirmationPage() {
 
   const [data, setData] = useState<ConfirmationData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [athletesData, setAthletesData] = useState<AthletesByEvent>(ATHLETES);
+  const [leaderboardMeta, setLeaderboardMeta] = useState<LeaderboardMeta>(DEFAULT_LEADERBOARD_META);
+  const [ticketLeaderboardEntry, setTicketLeaderboardEntry] = useState<LeaderboardEntry | null>(null);
   const ticketRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    getAthletesData().then((data) => {
+      if (!cancelled) setAthletesData(data);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     async function fetchParticipation() {
-      const participation = (await getParticipation(ref)) as Participation | null;
+      const [participation, leaderboard] = await Promise.all([
+        getParticipation(ref) as Promise<Participation | null>,
+        getLeaderboard(),
+      ]);
       if (participation?.selections) {
         setData({ participation });
+      }
+      if (leaderboard.ok && leaderboard.data) {
+        setLeaderboardMeta(leaderboard.meta ?? DEFAULT_LEADERBOARD_META);
+        setTicketLeaderboardEntry(
+          leaderboard.data.find((entry) => entry.reference === ref) ?? null
+        );
       }
       setLoading(false);
     }
@@ -64,7 +93,7 @@ export default function ConfirmationPage() {
         femaleId: null,
         winnerId: null,
       };
-      const athletes = ATHLETES[event.slug as keyof typeof ATHLETES];
+      const athletes = athletesData[event.slug as keyof typeof athletesData];
       const male = athletes.male.find((athlete) => athlete.id === eventSelection.maleId);
       const female = athletes.female.find((athlete) => athlete.id === eventSelection.femaleId);
 
@@ -105,7 +134,7 @@ export default function ConfirmationPage() {
         },
       ];
     });
-  }, [data]);
+  }, [data, athletesData]);
 
   const completedSlotsCount = ticketSlots.filter((slot) => slot.filled).length;
 
@@ -116,16 +145,37 @@ export default function ConfirmationPage() {
   const handleDownload = async () => {
     if (!ticketRef.current) return;
     try {
-      const dataUrl = await htmlToImage.toPng(ticketRef.current, {
+      const options = {
         quality: 0.95,
-        pixelRatio: 2,
-      });
+        pixelRatio: 4, // 4x resolution for crystal-clear exports
+        cacheBust: true,
+        skipFonts: true,
+      };
+
+      // Disable animations and 3D transforms during capture to prevent pixelation/blurriness
+      ticketRef.current.classList.add("downloading");
+
+      // 1. Pre-warm cache and prepare image resources.
+      await htmlToImage.toPng(ticketRef.current, options);
+
+      // 2. Wait briefly to allow full decoding/drawing on canvas.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // 3. Perform the actual capture.
+      const dataUrl = await htmlToImage.toPng(ticketRef.current, options);
+
+      // Restore animations and 3D transforms
+      ticketRef.current.classList.remove("downloading");
+
       const link = document.createElement("a");
       link.download = `memorial-ticket-${ref}.png`;
       link.href = dataUrl;
       link.click();
     } catch (error) {
       console.error("Error downloading ticket image", error);
+      if (ticketRef.current) {
+        ticketRef.current.classList.remove("downloading");
+      }
     }
   };
 
@@ -184,23 +234,49 @@ export default function ConfirmationPage() {
           </p>
         </section>
 
-        <section className="flex-1 min-h-0">
+        {leaderboardMeta.resultsStatus !== "pending" && ticketLeaderboardEntry && (
+          <section className={`mb-2 rounded-2xl border px-3 py-2.5 ${
+            leaderboardMeta.resultsComplete && ticketLeaderboardEntry.isWinner
+              ? "border-amber-300 bg-amber-50 text-amber-950"
+              : leaderboardMeta.resultsComplete
+              ? "border-slate-200 bg-white text-slate-700"
+              : "border-sky-200 bg-sky-50 text-sky-900"
+          }`}>
+            <div className="flex items-center gap-2">
+              <Trophy className={`h-4 w-4 shrink-0 ${
+                leaderboardMeta.resultsComplete && ticketLeaderboardEntry.isWinner
+                  ? "text-amber-600"
+                  : "text-slate-500"
+              }`} />
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.12em]">
+                  {leaderboardMeta.resultsComplete
+                    ? ticketLeaderboardEntry.isWinner
+                      ? "Ticket ganador"
+                      : "Clasificación final"
+                    : "Resultados parciales"}
+                </p>
+                <p className="text-xs font-semibold leading-snug">
+                  Puesto #{ticketLeaderboardEntry.rank} · Efic.{" "}
+                  {ticketLeaderboardEntry.efficiency % 1 === 0
+                    ? ticketLeaderboardEntry.efficiency
+                    : ticketLeaderboardEntry.efficiency.toFixed(1)}
+                  {leaderboardMeta.resultsComplete && ticketLeaderboardEntry.isWinner
+                    ? " · Enséñalo al staff"
+                    : ""}
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="flex-1 flex flex-col justify-center min-h-0 py-2">
           <div
             ref={ticketRef}
-            className="h-full rounded-2xl border border-slate-200 bg-white shadow-sm p-3 flex flex-col conf-ticket-card"
+            className="h-auto rounded-2xl border border-slate-200 bg-white shadow-sm p-3 flex flex-col conf-ticket-card"
           >
-            <div className="flex items-start justify-between pb-2 border-b border-slate-100">
-              <div>
-                <p className="text-[9px] font-black text-blue-600 uppercase tracking-[0.14em]">
-                  Evento Oficial
-                </p>
-                <h3 className="text-base font-black mt-0.5">Reto Memorial</h3>
-              </div>
-              <Ticket className="w-4 h-4 text-slate-400 mt-0.5" />
-            </div>
-
-            <div className="pt-2 flex-1 min-h-0 flex flex-col">
-              <div className="flex items-center justify-between mb-2">
+            <div className="pt-1 flex flex-col gap-2">
+              <div className="flex items-center justify-between mb-1">
                 <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                   Cromos del equipo
                 </p>
@@ -215,23 +291,23 @@ export default function ConfirmationPage() {
                 ))}
               </div>
 
-              <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 conf-points-banner">
+              <div className="mt-1 flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 conf-points-banner">
                 <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                  Puntos gastados
+                  Puntos invertidos
                 </span>
                 <span className="text-sm font-mono font-black text-slate-900">
                   {totalSpentPoints} / 35 pts
                 </span>
               </div>
 
-              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 conf-ref-box">
+              <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 conf-ref-box">
                 <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500 text-center">
                   Referencia
                 </p>
                 <p className="text-sm font-mono font-black text-slate-900 tracking-[0.1em] text-center mt-0.5">
                   {ref}
                 </p>
-                <div className="mt-1.5 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center overflow-hidden conf-barcode-graphic">
+                <div className="mt-1 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center overflow-hidden conf-barcode-graphic">
                   <div className="flex gap-[3px] opacity-85">
                     <div className="w-[2px] h-4 bg-slate-500" />
                     <div className="w-[4px] h-4 bg-slate-500" />
@@ -251,6 +327,22 @@ export default function ConfirmationPage() {
             </div>
           </div>
         </section>
+
+        {/* Reto Memorial Live redirection button */}
+        <div className="pb-2.5 flex-shrink-0">
+          <button
+            onClick={() => router.push("/")}
+            className="w-full h-12 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-[0.98] border border-slate-800 relative overflow-hidden group"
+          >
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+              </span>
+              <span className="tracking-wide">Reto Memorial Live</span>
+            </div>
+          </button>
+        </div>
 
         <footer className="pt-2.5 grid grid-cols-2 gap-2 conf-footer">
           <button
@@ -278,7 +370,7 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
 
   if (!slot.filled || !slot.athleteImage) {
     return (
-      <div className="aspect-[3/3.5] rounded-[14px] border border-dashed border-slate-300/90 bg-white/45 backdrop-blur-xl backdrop-saturate-150 relative overflow-hidden conf-slot-card">
+      <div className="aspect-[3/3.6] rounded-[14px] border border-dashed border-slate-300/90 bg-white/45 backdrop-blur-xl backdrop-saturate-150 relative overflow-hidden conf-slot-card">
         <div className="absolute inset-0 flex flex-col items-center justify-center group">
           <div className="flex flex-col items-center gap-2 transition-all duration-500 group-hover:scale-[1.04]">
             <Plus className="w-6 h-6 text-slate-500/90" strokeWidth={2.6} />
@@ -291,22 +383,17 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
 
   return (
     <div
-      className={`aspect-[3/3.5] rounded-[14px] border relative transition-all duration-500 overflow-hidden border-[#c9b07a]/60 bg-[#fffcf4] z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)] team-sticker conf-slot-card ${floatClass}`}
+      className={`aspect-[3/3.6] rounded-[14px] border relative transition-all duration-500 overflow-hidden border-[#c9b07a]/60 bg-[#fffcf4] z-10 shadow-[0_12px_28px_rgba(15,23,42,0.08)] team-sticker conf-slot-card ${floatClass}`}
       style={{
-        transformStyle: "preserve-3d",
         animationDelay: `${-(index % 3) * 1.35}s`,
-        willChange: "transform",
-        backfaceVisibility: "visible",
-        WebkitBackfaceVisibility: "visible",
       }}
     >
       {slot.isChallengeWinner && (
         <div
           className="absolute top-1.5 left-1.5 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-amber-950 text-[7px] font-black uppercase tracking-wider shadow-[0_2px_8px_rgba(245,158,11,0.4)] border border-amber-200/50"
-          style={{ transform: "translateZ(32px)" }}
         >
           <Trophy className="w-2.5 h-2.5" strokeWidth={3} />
-          <span>¡Reto!</span>
+          <span>x2</span>
         </div>
       )}
       <div className="absolute inset-0 p-1">
@@ -314,33 +401,26 @@ function TicketSlotCard({ slot, index }: { slot: TicketSlot; index: number }) {
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_0_1px_rgba(201,176,122,0.26)]" />
         <div
           className="flex h-full w-full flex-col rounded-[12px] border border-[#dcc79c]/80 bg-[#fffdf8]/95 p-1.5"
-          style={{
-            transformStyle: "preserve-3d",
-            transform: "none",
-            opacity: 1,
-          }}
         >
           <div className="mx-0.5 flex-1 min-h-0">
-            <div className="relative h-full w-full" style={{ transform: "translateZ(8px)" }}>
-              <ProgressiveImage
-                className="absolute inset-0 h-full w-full rounded-[10px] bg-slate-200 object-cover saturate-[1.15]"
-                alt={slot.athleteName}
-                src={slot.athleteImage}
-                wrapperClassName="absolute inset-0 rounded-[10px]"
+            <div className="relative h-full w-full">
+              <div
+                className="absolute inset-0 h-full w-full rounded-[10px] bg-slate-200"
                 style={{
+                  backgroundImage: `url(${slot.athleteImage})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
                   boxShadow: "rgba(0, 0, 0, 0.05) 0px 5px 6px 0px",
-                  opacity: 1,
                 }}
               />
               <div className="absolute inset-0 rounded-[10px] bg-gradient-to-t from-slate-900/36 via-slate-900/8 to-transparent" />
-              <div className="absolute inset-0 rounded-[10px] bg-[linear-gradient(125deg,rgba(194,163,92,0.16),rgba(255,255,255,0.01)_42%,rgba(160,131,76,0.14)_74%)] mix-blend-soft-light" />
-              <div className="absolute inset-0 rounded-[10px] bg-[radial-gradient(circle_at_18%_12%,rgba(225,204,158,0.18),rgba(255,255,255,0)_44%)] mix-blend-screen" />
+              {/* Subtle gold overlay tint without using mix-blend-mode to preserve 3x rasterization sharpness */}
+              <div className="absolute inset-0 rounded-[10px] bg-[linear-gradient(125deg,rgba(194,163,92,0.06),transparent_60%,rgba(160,131,76,0.06))]" />
             </div>
           </div>
 
           <div
             className="mt-1 flex flex-shrink-0 items-center justify-between px-1 pb-0.5 pt-0.5 font-mono text-slate-900"
-            style={{ transform: "translateZ(24px)" }}
           >
             <div className="text-[8px] font-semibold truncate pr-1">{slot.athleteName.split(" ")[0]}</div>
             <div className="text-[8px] text-slate-600 font-bold bg-amber-100 px-1 rounded-sm">

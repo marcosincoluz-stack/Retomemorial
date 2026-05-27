@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { ATHLETES, EVENTS } from "@/lib/data";
-import { getExistingParticipationForDevice, getAthletePopularityStats, isDeviceLocked, clearDeviceLock } from "@/app/actions";
+import { ATHLETES, EVENTS, type AthletesByEvent } from "@/lib/data";
+import { getExistingParticipationForDevice, getAthletePopularityStats, isDeviceLocked, clearDeviceLock, getAthletesData } from "@/app/actions";
 import { CometCard } from "@/components/ui/comet-card";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { Flame, Trophy, ExternalLink, AlertTriangle } from "lucide-react";
+import { Flame, Trophy, ExternalLink, AlertTriangle, Medal, Loader2, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { getLeaderboard, type LeaderboardEntry, type LeaderboardMeta } from "@/app/admin/actions";
 
 const AnimatedBackground = ({ lowMotion }: { lowMotion: boolean }) => {
   if (lowMotion) {
@@ -89,31 +91,7 @@ const ProgressBar = ({ step }: { step: number }) => (
   </div>
 );
 
-const CountdownTimer = () => {
-  const [timeLeft, setTimeLeft] = useState(900); // 15 minutes in seconds
-
-  useEffect(() => {
-    if (timeLeft <= 0) return;
-    const intervalId = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
-    }, 1000);
-    return () => clearInterval(intervalId);
-  }, [timeLeft]);
-
-  const minutes = Math.floor(timeLeft / 60);
-  const seconds = timeLeft % 60;
-
-  return (
-    <div className="mt-8 mb-4">
-      <div className="text-[64px] font-bold tracking-tighter text-slate-900 tabular-nums flex items-center justify-center">
-        {String(minutes).padStart(2, "0")}
-        <span className="mb-2 mx-1">:</span>
-        {String(seconds).padStart(2, "0")}
-      </div>
-      <p className="text-slate-500 text-sm font-medium uppercase tracking-[0.2em]">Tiempo restante</p>
-    </div>
-  );
-};
+// CountdownTimer removed
 
 const variants = {
   enter: (direction: number) => ({
@@ -149,6 +127,14 @@ const lowMotionVariants = {
   })
 };
 
+const DEFAULT_LEADERBOARD_META: LeaderboardMeta = {
+  resultsComplete: false,
+  winnersCutoff: 10,
+  resultsStatus: "pending",
+  completedResults: 0,
+  expectedResults: 0,
+};
+
 const ctaFooterClass = "absolute inset-x-0 bottom-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)] pt-4";
 
 type StickerCard = {
@@ -169,7 +155,6 @@ type DeviceParticipationSummary = {
 const EVENT_LABELS: Record<keyof typeof ATHLETES, string> = {
   disco: "Disco",
   jabalina: "Jabalina",
-  longitud: "Longitud",
 };
 
 const shuffleArray = <T,>(values: T[]) => {
@@ -220,14 +205,7 @@ const formatName = (fullName: string) => {
   return `${initial}. ${surname}`;
 };
 
-const getLiveParticipantCount = (ref: string) => {
-  let hash = 0;
-  for (let i = 0; i < ref.length; i++) {
-    hash = ref.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const base = Math.abs(hash) % 500 + 850;
-  return base;
-};
+// getLiveParticipantCount removed
 
 export default function OnboardingPage() {
   const [[page, direction], setPage] = useState([1, 0]);
@@ -247,15 +225,94 @@ export default function OnboardingPage() {
     useState<DeviceParticipationSummary | null>(null);
   const [popularityStats, setPopularityStats] = useState<Record<string, number>>({});
   const [dashboardEventSlug, setDashboardEventSlug] = useState<string>("jabalina");
-  const [liveOffset, setLiveOffset] = useState(0);
+  const [athletesData, setAthletesData] = useState<AthletesByEvent>(ATHLETES);
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardMeta, setLeaderboardMeta] = useState<LeaderboardMeta>(DEFAULT_LEADERBOARD_META);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(true);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  const [expandedRef, setExpandedRef] = useState<string | null>(null);
+  const [nicknameInput, setNicknameInput] = useState("");
+
+  const refreshDashboardStats = useCallback(async () => {
+    try {
+      const [stats, leaderboardResult] = await Promise.all([
+        getAthletePopularityStats(),
+        getLeaderboard(),
+      ]);
+      setPopularityStats(stats);
+      if (leaderboardResult.ok && leaderboardResult.data) {
+        setLeaderboardEntries(leaderboardResult.data);
+        setLeaderboardMeta(leaderboardResult.meta ?? DEFAULT_LEADERBOARD_META);
+        setLeaderboardError(null);
+      } else {
+        setLeaderboardMeta(leaderboardResult.meta ?? DEFAULT_LEADERBOARD_META);
+        setLeaderboardError(leaderboardResult.message ?? "No se pudo cargar la clasificación.");
+      }
+    } catch (err) {
+      console.error("Error updating live stats:", err);
+      setLeaderboardError("No se pudo cargar la clasificación.");
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      if (tab === "clasificacion") {
+        setDashboardEventSlug("clasificacion");
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAthletesData().then((data) => {
+      if (!cancelled) setAthletesData(data);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!deviceParticipation) return;
-    const timer = setInterval(() => {
-      setLiveOffset(prev => prev + (Math.random() > 0.7 ? 1 : 0));
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [deviceParticipation]);
+
+    // 1. Subscribe to Supabase Postgres Changes if client is available
+    let supabaseChannel: any = null;
+    try {
+      const supabaseClient = getSupabaseBrowserClient();
+      if (supabaseClient) {
+        supabaseChannel = supabaseClient
+          .channel("dashboard-picks-realtime")
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "participation_picks",
+            },
+            () => {
+              void refreshDashboardStats();
+            }
+          )
+          .subscribe();
+      }
+    } catch (err) {
+      console.error("Error setting up Supabase Realtime:", err);
+    }
+
+    // 2. Set up polling fallback (every 8 seconds)
+    const pollInterval = setInterval(() => {
+      void refreshDashboardStats();
+    }, 8000);
+
+    return () => {
+      if (supabaseChannel) {
+        void supabaseChannel.unsubscribe();
+      }
+      clearInterval(pollInterval);
+    };
+  }, [deviceParticipation, refreshDashboardStats]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 900px), (pointer: coarse)");
@@ -290,9 +347,21 @@ export default function OnboardingPage() {
                 selections: result.selections,
               });
 
-              const stats = await getAthletePopularityStats();
+              const [stats, leaderboardResult] = await Promise.all([
+                getAthletePopularityStats(),
+                getLeaderboard(),
+              ]);
               if (!cancelled) {
                 setPopularityStats(stats);
+                if (leaderboardResult.ok && leaderboardResult.data) {
+                  setLeaderboardEntries(leaderboardResult.data);
+                  setLeaderboardMeta(leaderboardResult.meta ?? DEFAULT_LEADERBOARD_META);
+                  setLeaderboardError(null);
+                } else {
+                  setLeaderboardMeta(leaderboardResult.meta ?? DEFAULT_LEADERBOARD_META);
+                  setLeaderboardError(leaderboardResult.message ?? "No se pudo cargar la clasificación.");
+                }
+                setLoadingLeaderboard(false);
               }
             } else {
               // Cookie exists but DB data missing
@@ -526,13 +595,13 @@ export default function OnboardingPage() {
 
     const getAthleteById = (id: string | null, event: string, gender: "male" | "female") => {
       if (!id) return null;
-      const eventAthletes = ATHLETES[event as keyof typeof ATHLETES];
+      const eventAthletes = athletesData[event as keyof typeof athletesData];
       if (!eventAthletes) return null;
       const found = eventAthletes[gender].find((a) => a.id === id);
       return found ? { id: found.id, name: found.name, image: found.image } : null;
     };
 
-    const eventAthletes = ATHLETES[dashboardEventSlug as keyof typeof ATHLETES] || { male: [], female: [] };
+    const eventAthletes = athletesData[dashboardEventSlug as keyof typeof athletesData] || { male: [], female: [] };
     const combinedAthletes = [
       ...eventAthletes.male.map((a) => ({ ...a, gender: "M" as const })),
       ...eventAthletes.female.map((a) => ({ ...a, gender: "F" as const })),
@@ -544,14 +613,43 @@ export default function OnboardingPage() {
       return popB - popA;
     });
 
-    const participantCount = getLiveParticipantCount(deviceParticipation.reference) + liveOffset;
+    const getAthleteName = (athleteId: string) => {
+    for (const event of Object.values(athletesData)) {
+      const foundM = event.male.find((a) => a.id === athleteId);
+      if (foundM) return foundM.name;
+      const foundF = event.female.find((a) => a.id === athleteId);
+      if (foundF) return foundF.name;
+    }
+    return athleteId;
+  };
 
-    return (
-      <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50 flex flex-col font-sans select-none">
-        <AnimatedBackground lowMotion={lowMotion} />
+  const formatNumber = (value: number) => {
+    if (value === 0) return "—";
+    return value % 1 === 0 ? value.toString() : value.toFixed(1);
+  };
 
-        {/* Live Stats Header */}
-        <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
+  const ownLeaderboardEntry = leaderboardEntries.find(
+    (entry) => entry.reference === deviceParticipation.reference
+  );
+  const hasFinalWinnerNotice = Boolean(
+    leaderboardMeta.resultsComplete && ownLeaderboardEntry?.isWinner
+  );
+  const hasFinalNonWinnerNotice = Boolean(
+    leaderboardMeta.resultsComplete && ownLeaderboardEntry && !ownLeaderboardEntry.isWinner
+  );
+  const leaderboardStatusCopy =
+    leaderboardMeta.resultsStatus === "complete"
+      ? "Clasificación final publicada"
+      : leaderboardMeta.resultsStatus === "partial"
+      ? "Resultados parciales en directo"
+      : "Resultados pendientes";
+
+  return (
+    <main className="min-h-dvh h-[100dvh] w-full relative overflow-hidden bg-slate-50 flex flex-col font-sans select-none">
+      <AnimatedBackground lowMotion={lowMotion} />
+
+      {/* Live Stats Header */}
+      <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
           <div className="relative flex justify-center items-center px-6 h-16 max-w-3xl mx-auto">
             <div className="absolute left-6 text-slate-600 p-2 flex items-center justify-center">
               <span className="material-symbols-outlined text-[24px]">sports_score</span>
@@ -564,11 +662,86 @@ export default function OnboardingPage() {
 
         {/* Main Stats Area */}
         <div className="relative z-10 flex-1 max-w-3xl mx-auto w-full px-6 pt-24 pb-36 flex flex-col min-h-0">
+          <section
+            className={`mb-4 rounded-[1.6rem] border p-4 shadow-sm overflow-hidden relative ${
+              hasFinalWinnerNotice
+                ? "border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-[0_16px_40px_rgba(245,158,11,0.18)]"
+                : hasFinalNonWinnerNotice
+                ? "border-slate-200 bg-white/92"
+                : leaderboardMeta.resultsStatus === "partial"
+                ? "border-sky-200 bg-sky-50/90"
+                : "border-slate-200 bg-white/82"
+            }`}
+          >
+            {hasFinalWinnerNotice && (
+              <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-amber-300/35 blur-2xl" />
+            )}
+            <div className="relative flex items-start gap-3">
+              <span
+                className={`inline-flex size-10 shrink-0 items-center justify-center rounded-2xl ${
+                  hasFinalWinnerNotice
+                    ? "bg-amber-400 text-amber-950"
+                    : leaderboardMeta.resultsStatus === "partial"
+                    ? "bg-sky-100 text-sky-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {hasFinalWinnerNotice ? (
+                  <Trophy className="h-5 w-5" />
+                ) : (
+                  <Medal className="h-5 w-5" />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className={`text-sm font-black uppercase tracking-[0.12em] ${
+                  hasFinalWinnerNotice ? "text-amber-900" : "text-slate-900"
+                }`}>
+                  {hasFinalWinnerNotice
+                    ? "¡Has ganado!"
+                    : leaderboardStatusCopy}
+                </p>
+                {hasFinalWinnerNotice && ownLeaderboardEntry ? (
+                  <p className="mt-1 text-sm font-semibold text-amber-950/80 leading-snug">
+                    Tu ticket está en el puesto {ownLeaderboardEntry.rank} del top {leaderboardMeta.winnersCutoff}.
+                    Enseña tu referencia al staff para reclamar el premio.
+                  </p>
+                ) : hasFinalNonWinnerNotice && ownLeaderboardEntry ? (
+                  <p className="mt-1 text-sm text-slate-600 leading-snug">
+                    Tu ticket terminó en el puesto {ownLeaderboardEntry.rank}. La clasificación ya está cerrada.
+                  </p>
+                ) : leaderboardMeta.resultsStatus === "partial" ? (
+                  <p className="mt-1 text-sm text-sky-800/75 leading-snug">
+                    Hay resultados cargados, pero todavía falta cerrar alguna prueba.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-600 leading-snug">
+                    Cuando se carguen todos los resultados, aquí aparecerá si tu ticket está entre los ganadores.
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {ownLeaderboardEntry && (
+                    <span className="rounded-full bg-white/75 border border-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-slate-600">
+                      Puesto #{ownLeaderboardEntry.rank}
+                    </span>
+                  )}
+                  {ownLeaderboardEntry && (
+                    <span className="rounded-full bg-white/75 border border-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-slate-600">
+                      Efic. {formatNumber(ownLeaderboardEntry.efficiency)}
+                    </span>
+                  )}
+                  <span className="rounded-full bg-white/75 border border-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-slate-600">
+                    {leaderboardMeta.completedResults}/{leaderboardMeta.expectedResults || "?"} resultados
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* Tab Switcher */}
           <div className="flex bg-slate-200/75 border border-slate-300/40 rounded-full p-1 self-center w-full max-w-md shadow-inner mb-5 shrink-0">
             <button
               onClick={() => setDashboardEventSlug("jabalina")}
-              className={`flex-1 py-2 px-4 rounded-full text-[15px] sm:text-[16px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
+              className={`flex-1 py-1.5 px-3 rounded-full text-[13px] sm:text-[14px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
                 dashboardEventSlug === "jabalina"
                   ? "bg-slate-900 text-white shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -578,7 +751,7 @@ export default function OnboardingPage() {
             </button>
             <button
               onClick={() => setDashboardEventSlug("disco")}
-              className={`flex-1 py-2 px-4 rounded-full text-[15px] sm:text-[16px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
+              className={`flex-1 py-1.5 px-3 rounded-full text-[13px] sm:text-[14px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
                 dashboardEventSlug === "disco"
                   ? "bg-slate-900 text-white shadow-sm"
                   : "text-slate-600 hover:text-slate-900"
@@ -586,98 +759,334 @@ export default function OnboardingPage() {
             >
               Disco
             </button>
+            <button
+              onClick={() => setDashboardEventSlug("clasificacion")}
+              className={`flex-1 py-1.5 px-3 rounded-full text-[13px] sm:text-[14px] text-center font-bold tracking-wider uppercase transition-all duration-300 ${
+                dashboardEventSlug === "clasificacion"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Clasificación
+            </button>
           </div>
 
           {/* Scrollable Leaderboard List */}
           <div className="flex-grow overflow-y-auto ios-scroll overscroll-contain pr-1 flex flex-col gap-2.5">
-            {sortedAthletes.map((athlete, index) => {
-              const rank = index + 1;
-              const pop = popularityStats[athlete.id] ?? 0;
-              const formattedName = formatName(athlete.name);
-
-              const userSelectedThis =
-                selections[dashboardEventSlug]?.maleId === athlete.id ||
-                selections[dashboardEventSlug]?.femaleId === athlete.id;
-
-              let progressBgClass = "bg-indigo-500";
-              let rankColorClass = "text-slate-500";
-
-              if (rank === 1) {
-                rankColorClass = "text-amber-500 font-extrabold";
-                progressBgClass = "bg-amber-400";
-              } else if (rank === 2) {
-                rankColorClass = "text-slate-400 font-extrabold";
-                progressBgClass = "bg-slate-300";
-              } else if (rank === 3) {
-                rankColorClass = "text-amber-700 font-extrabold";
-                progressBgClass = "bg-amber-600";
-              } else if (rank > 5 && rank <= 8) {
-                progressBgClass = "bg-indigo-400 opacity-60";
-              }
-
-              if (rank <= 8) {
-                return (
-                  <div
-                    key={athlete.id}
-                    className={`flex items-center gap-3 py-2.5 px-3 rounded-2xl border transition-all duration-300 ${
-                      userSelectedThis
-                        ? "bg-indigo-50/50 border-indigo-200 shadow-[0_2px_8px_rgba(99,102,241,0.08)]"
-                        : "bg-white/90 border-slate-200/80 shadow-sm"
-                    }`}
+            {dashboardEventSlug === "clasificacion" ? (
+              loadingLeaderboard ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">
+                    Cargando clasificación...
+                  </span>
+                </div>
+              ) : leaderboardError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+                  <p className="text-sm text-red-700 font-medium">{leaderboardError}</p>
+                  <button
+                    onClick={() => refreshDashboardStats()}
+                    className="mt-3 text-sm font-bold text-red-600 hover:underline inline-flex items-center gap-1.5"
                   >
-                    <span className={`w-6 text-center text-sm font-bold ${rankColorClass}`}>{rank}</span>
-                    <span className="material-symbols-outlined text-slate-400 text-[20px]">flag</span>
-                    <span className={`w-28 text-xs font-semibold text-slate-800 truncate uppercase ${userSelectedThis ? "font-bold text-indigo-900" : ""}`}>
-                      {formattedName}
-                    </span>
-                    <div className="flex-grow h-3.5 bg-slate-100 rounded-full overflow-hidden flex relative">
-                      <div
-                        className={`h-full rounded-r-full transition-all duration-1000 ${progressBgClass}`}
-                        style={{ width: `${Math.max(4, pop)}%` }}
-                      />
+                    <RefreshCw className="w-3.5 h-3.5" /> Reintentar
+                  </button>
+                </div>
+              ) : leaderboardEntries.length === 0 ? (
+                <div className="rounded-3xl border border-slate-200 bg-white/90 p-8 text-center shadow-sm">
+                  <p className="text-sm text-slate-500 font-semibold">Aún no hay resultados cargados.</p>
+                  <p className="text-xs text-slate-400 mt-1">La clasificación aparecerá cuando se introduzcan los resultados de las pruebas.</p>
+                </div>
+              ) : (
+                leaderboardEntries.map((entry) => {
+                  const isOwnBet = entry.reference === deviceParticipation.reference;
+                  const isTop3 = entry.rank <= 3;
+                  const isFinalWinner = leaderboardMeta.resultsComplete && entry.isWinner;
+                  const rankColors = [
+                    "bg-amber-50/90 border-amber-300 shadow-[0_4px_16px_rgba(245,158,11,0.08)]",
+                    "bg-slate-50/90 border-slate-300 shadow-sm",
+                    "bg-orange-50/90 border-orange-300 shadow-sm",
+                  ];
+                  const isExpanded = expandedRef === entry.reference;
+
+                  return (
+                    <div
+                      key={entry.reference}
+                      onClick={() => setExpandedRef(isExpanded ? null : entry.reference)}
+                      className={`rounded-2xl border p-4 transition-all duration-300 cursor-pointer ${
+                        isFinalWinner
+                          ? "bg-amber-50/90 border-amber-300 shadow-[0_4px_18px_rgba(245,158,11,0.12)]"
+                          : isOwnBet
+                          ? "bg-indigo-50/60 border-indigo-400 shadow-[0_4px_16px_rgba(99,102,241,0.08)] ring-2 ring-indigo-500/20"
+                          : isTop3
+                          ? rankColors[entry.rank - 1]
+                          : "bg-white/90 border-slate-200/80 shadow-sm hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`inline-flex size-8 items-center justify-center rounded-xl text-sm font-black shrink-0 ${
+                            entry.rank === 1
+                              ? "bg-amber-200 text-amber-800"
+                              : entry.rank === 2
+                              ? "bg-slate-200 text-slate-700"
+                              : entry.rank === 3
+                              ? "bg-orange-200 text-orange-800"
+                              : "bg-slate-100 text-slate-500"
+                          }`}>
+                            {entry.rank <= 3 ? (
+                              <Medal className="w-4 h-4" />
+                            ) : (
+                              entry.rank
+                            )}
+                          </span>
+                          <div className="min-w-0 flex flex-col gap-0.5">
+                            {entry.nickname ? (
+                              <>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-sm font-black text-slate-900 truncate max-w-[150px]">
+                                    {entry.nickname}
+                                  </p>
+                                  {isOwnBet && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[8px] font-black uppercase tracking-wider leading-none shrink-0 shadow-[0_2px_6px_rgba(99,102,241,0.25)]">
+                                      TU APUESTA
+                                    </span>
+                                  )}
+                                  {isFinalWinner && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-400 text-amber-950 text-[8px] font-black uppercase tracking-wider leading-none shrink-0 shadow-[0_2px_8px_rgba(245,158,11,0.25)]">
+                                      <Trophy className="h-2.5 w-2.5" /> Ganador
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold">
+                                  <span className="font-mono tracking-wider">{entry.reference}</span>
+                                  <span>•</span>
+                                  <span>
+                                    {new Date(entry.createdAt).toLocaleDateString("es-ES", {
+                                      day: "numeric",
+                                      month: "short",
+                                    })}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-mono text-sm font-black text-slate-900 tracking-wider">
+                                    {entry.reference}
+                                  </p>
+                                  {isOwnBet && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[8px] font-black uppercase tracking-wider leading-none shrink-0 shadow-[0_2px_6px_rgba(99,102,241,0.25)]">
+                                      TU APUESTA
+                                    </span>
+                                  )}
+                                  {isFinalWinner && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-400 text-amber-950 text-[8px] font-black uppercase tracking-wider leading-none shrink-0 shadow-[0_2px_8px_rgba(245,158,11,0.25)]">
+                                      <Trophy className="h-2.5 w-2.5" /> Ganador
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                                  {new Date(entry.createdAt).toLocaleDateString("es-ES", {
+                                    day: "numeric",
+                                    month: "short",
+                                  })}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="text-right">
+                            <p className={`text-xl font-black leading-none ${
+                              entry.efficiency > 0
+                                ? entry.rank === 1 ? "text-amber-600 font-black" : "text-slate-900"
+                                : "text-slate-300"
+                            }`}>
+                              {formatNumber(entry.efficiency)}
+                            </p>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Efic.</p>
+                            <p className="text-[9px] text-slate-400 font-semibold leading-tight">
+                              {formatNumber(entry.totalScore)} / {formatNumber(entry.totalInvested)} pts
+                            </p>
+                          </div>
+                          <div className="text-slate-400 shrink-0">
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-slate-500" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-slate-500" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {isExpanded && Object.keys(entry.breakdown).length > 0 && (
+                        <div className="mt-3.5 pt-3.5 border-t border-slate-200/60" onClick={(e) => e.stopPropagation()}>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {EVENTS.map((event) => {
+                              const eventBreakdown = entry.breakdown[event.slug];
+                              if (!eventBreakdown) return null;
+
+                              const slots = [
+                                { label: "M", data: eventBreakdown.male },
+                                { label: "F", data: eventBreakdown.female },
+                                { label: "Reto x2", data: eventBreakdown.winner },
+                              ].filter((slot) => slot.data) as {
+                                label: string;
+                                data: { athleteId: string; points: number; retoBonus: boolean };
+                              }[];
+
+                              return (
+                                <div key={event.slug} className="rounded-xl bg-slate-50/80 border border-slate-100/50 p-3">
+                                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                                    {event.name}
+                                  </p>
+                                  <div className="space-y-1.5">
+                                    {slots.map((slot, i) => (
+                                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-sm shrink-0 leading-none ${
+                                            slot.label === "Reto x2"
+                                              ? "bg-amber-100 text-amber-800"
+                                              : "bg-slate-200/70 text-slate-600"
+                                          }`}>
+                                            {slot.label}
+                                          </span>
+                                          <span className="font-semibold text-slate-700 truncate">
+                                            {getAthleteName(slot.data.athleteId)}
+                                          </span>
+                                        </div>
+                                        <span className={`font-mono font-bold shrink-0 ${
+                                          slot.data.retoBonus ? "text-emerald-600 font-extrabold" : "text-slate-500"
+                                        }`}>
+                                          {slot.label === "Reto x2"
+                                            ? slot.data.retoBonus ? "x2 ACTIVO 🏆" : "—"
+                                            : `${slot.data.points} pts${slot.data.retoBonus ? " (x2)" : ""}`}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <span className="w-12 text-right font-mono text-xs font-bold text-slate-700">{pop}%</span>
-                  </div>
-                );
-              } else {
-                const opacityClass = rank === 9 ? "opacity-60" : rank === 10 ? "opacity-40" : "opacity-25";
-                return (
-                  <div
-                    key={athlete.id}
-                    className={`flex items-center gap-3 py-2 px-3 transition-opacity ${opacityClass}`}
-                  >
-                    <span className="w-6 text-center text-xs font-semibold text-slate-400">{rank}</span>
-                    <span className="material-symbols-outlined text-slate-300 text-[18px]">flag</span>
-                    <span className="w-28 text-xs text-slate-500 truncate uppercase">{formattedName}</span>
-                    <div className="flex-grow h-3.5 bg-slate-100/50 rounded-full overflow-hidden flex relative" />
-                    <span className="w-12 text-right font-mono text-xs text-slate-400">{pop}%</span>
-                  </div>
-                );
-              }
-            })}
+                  );
+                })
+              )
+            ) : (
+              sortedAthletes.map((athlete, index) => {
+                const rank = index + 1;
+                const pop = popularityStats[athlete.id] ?? 0;
+                const formattedName = formatName(athlete.name);
+
+                const userSelectedThis =
+                  selections[dashboardEventSlug]?.maleId === athlete.id ||
+                  selections[dashboardEventSlug]?.femaleId === athlete.id;
+
+                const isUserChallengeWinner = selections[dashboardEventSlug]?.winnerId === athlete.id;
+
+                let progressBgClass = "bg-indigo-500";
+                let rankColorClass = "text-slate-500";
+
+                if (rank === 1) {
+                  rankColorClass = "text-amber-500 font-extrabold";
+                  progressBgClass = "bg-amber-500";
+                } else if (rank === 2) {
+                  rankColorClass = "text-slate-400 font-extrabold";
+                  progressBgClass = "bg-slate-300";
+                } else if (rank === 3) {
+                  rankColorClass = "text-amber-700 font-extrabold";
+                  progressBgClass = "bg-amber-600";
+                } else if (rank > 5 && rank <= 8) {
+                  progressBgClass = "bg-indigo-400 opacity-60";
+                }
+
+                // Apply special progress bar colors for user choices
+                if (isUserChallengeWinner) {
+                  progressBgClass = "bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.3)]";
+                } else if (userSelectedThis) {
+                  progressBgClass = "bg-indigo-600 shadow-[0_0_8px_rgba(99,102,241,0.3)]";
+                }
+
+                if (rank <= 8 || userSelectedThis) {
+                  return (
+                    <div
+                      key={athlete.id}
+                      className={`flex items-center gap-3 py-2.5 px-3 rounded-2xl border transition-all duration-300 ${
+                        isUserChallengeWinner
+                          ? "bg-amber-50/70 border-amber-300 shadow-[0_4px_12px_rgba(245,158,11,0.08)]"
+                          : userSelectedThis
+                          ? "bg-indigo-50/50 border-indigo-200 shadow-[0_4px_12px_rgba(99,102,241,0.06)]"
+                          : "bg-white/90 border-slate-200/80 shadow-sm"
+                      }`}
+                    >
+                      <span className={`w-6 text-center text-sm font-bold ${rankColorClass}`}>{rank}</span>
+                      <div className="w-32 sm:w-36 flex flex-col min-w-0 gap-0.5">
+                        <span className={`text-xs font-semibold text-slate-800 truncate uppercase ${
+                          isUserChallengeWinner 
+                            ? "font-black text-amber-950" 
+                            : userSelectedThis 
+                            ? "font-bold text-indigo-950" 
+                            : ""
+                        }`}>
+                          {formattedName}
+                        </span>
+                        {userSelectedThis && (
+                          <div className="flex mt-0.5">
+                            {isUserChallengeWinner ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[8px] font-black uppercase tracking-wider border border-amber-200/60 leading-none">
+                                <Trophy className="w-2.5 h-2.5 text-amber-600 mr-0.5" /> RETO x2
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[8px] font-black uppercase tracking-wider border border-indigo-200/60 leading-none">
+                                ELEGIDO
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-grow h-3.5 bg-slate-100 rounded-full overflow-hidden flex relative">
+                        <div
+                          className={`h-full rounded-r-full transition-all duration-1000 ${progressBgClass}`}
+                          style={{ width: `${Math.max(4, pop)}%` }}
+                        />
+                      </div>
+                      <span className="w-12 text-right font-mono text-xs font-bold text-slate-700">{pop}%</span>
+                    </div>
+                  );
+                } else {
+                  const opacityClass = rank === 9 ? "opacity-60" : rank === 10 ? "opacity-40" : "opacity-25";
+                  return (
+                    <div
+                      key={athlete.id}
+                      className={`flex items-center gap-3 py-2 px-3 transition-opacity ${opacityClass}`}
+                    >
+                      <span className="w-6 text-center text-xs font-semibold text-slate-400">{rank}</span>
+                      <div className="w-32 sm:w-36 flex flex-col min-w-0">
+                        <span className="text-xs text-slate-500 truncate uppercase">{formattedName}</span>
+                      </div>
+                      <div className="flex-grow h-3.5 bg-slate-100/50 rounded-full overflow-hidden flex relative" />
+                      <span className="w-12 text-right font-mono text-xs text-slate-400">{pop}%</span>
+                    </div>
+                  );
+                }
+              })
+            )}
           </div>
         </div>
 
         {/* Floating Bottom Sheet Card */}
         <div className="fixed bottom-0 left-0 w-full z-40 bg-white/95 backdrop-blur-2xl border-t border-slate-200/80 shadow-[0_-8px_32px_0_rgba(15,23,42,0.08)] px-6 py-4 pb-safe flex justify-center">
           <div className="w-full max-w-3xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 flex items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider font-extrabold">Apuesta realizada</span>
-                  <span className="material-symbols-outlined text-[13px]">check</span>
-                </div>
-                <span className="font-mono text-xs text-slate-500 font-bold">{deviceParticipation.reference}</span>
+            <div className="flex items-center justify-between w-full">
+              <div className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-3 py-1 rounded-full flex items-center gap-1.5 shadow-[0_4px_12px_rgba(16,185,129,0.25)] border border-emerald-400/20">
+                <span className="text-[10px] uppercase tracking-widest font-black">Apuesta realizada</span>
+                <span className="material-symbols-outlined text-[14px] font-black">check</span>
               </div>
-              <div className="flex items-center gap-2 text-slate-400">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                <span className="text-[11px] text-slate-500 font-semibold leading-none">
-                  {participantCount.toLocaleString()} en directo
-                </span>
-              </div>
+              <span className="font-mono text-xs text-slate-500 font-bold bg-slate-100 border border-slate-200/60 rounded-lg px-2.5 py-1">{deviceParticipation.reference}</span>
             </div>
             <button
               onClick={() => router.push(`/confirmation/${deviceParticipation.reference}`)}
@@ -838,41 +1247,41 @@ export default function OnboardingPage() {
               </header>
 
               <div className="flex-1 flex flex-col px-6 pt-5 pb-28 overflow-hidden [transform:translateZ(0)]">
-                <div className="mb-8 text-center pointer-events-none">
-                  <h1 className="text-4xl font-extrabold mb-4 tracking-tight text-slate-900 uppercase italic">Instrucciones</h1>
-                  <p className="text-slate-600 text-[16px] leading-relaxed px-4">
-                    Haz tu equipo con atletas femeninos y masculinos, elige a los ganadores y gana premios.
+                <div className="mb-6 text-center pointer-events-none">
+                  <h1 className="text-4xl font-extrabold mb-3 tracking-tight text-slate-900 uppercase italic">Cómo Jugar</h1>
+                  <p className="text-slate-600 text-[14px] leading-relaxed px-2">
+                    Demuestra tus conocimientos de atletismo formando la alineación más estratégica del Memorial.
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-6 mt-2 pointer-events-none">
+                <div className="flex flex-col gap-5 mt-1 pointer-events-none">
                   <div className="flex items-start gap-4">
-                    <div className="pt-0.5 text-slate-900">
-                      <span className="material-symbols-outlined text-[28px] font-light">groups</span>
+                    <div className="pt-1 text-slate-900">
+                      <span className="material-symbols-outlined text-[26px] font-light">groups</span>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Haz tu equipo</h3>
-                      <p className="text-[14px] text-slate-600 leading-snug">Selecciona atletas femeninos y masculinos para cada prueba.</p>
+                      <h3 className="font-bold text-[16px] text-slate-900 mb-0.5 tracking-tight">1. Construye tu equipo</h3>
+                      <p className="text-[13px] text-slate-600 leading-snug">Elige 4 atletas en total (1 hombre y 1 mujer por disciplina). Tienes un presupuesto máximo de 35 puntos; el valor de cada atleta (de 12 a 1 punto) varía según su ranking.</p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-4">
-                    <div className="pt-0.5 text-slate-900">
-                      <span className="material-symbols-outlined text-[28px] font-light">sprint</span>
+                    <div className="pt-1 text-slate-900">
+                      <span className="material-symbols-outlined text-[26px] font-light">bolt</span>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Elige ganadores</h3>
-                      <p className="text-[14px] text-slate-600 leading-snug">Escoge quién ganará cada prueba del reto.</p>
+                      <h3 className="font-bold text-[16px] text-slate-900 mb-0.5 tracking-tight">2. Asigna el Reto x2</h3>
+                      <p className="text-[13px] text-slate-600 leading-snug">Selecciona a un único atleta de tu equipo para superar la marca mínima del reto. Si lo consigue, su puntuación final en la prueba se multiplicará por dos (x2).</p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-4">
-                    <div className="pt-0.5 text-slate-900">
-                      <span className="material-symbols-outlined text-[28px] font-light">workspace_premium</span>
+                    <div className="pt-1 text-slate-900">
+                      <span className="material-symbols-outlined text-[26px] font-light">workspace_premium</span>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-[17px] text-slate-900 mb-1 tracking-tight">Gana premios</h3>
-                      <p className="text-[14px] text-slate-600 leading-snug">Premio si algún atleta de tu equipo supera la marca del reto, y premio gordo para quien acierte más ganadores.</p>
+                      <h3 className="font-bold text-[16px] text-slate-900 mb-0.5 tracking-tight">3. Puntuación final</h3>
+                      <p className="text-[13px] text-slate-600 leading-snug">Cada atleta gana puntos según su posición: 12 pts (1º), 11 (2º)… hasta 1 pt (12º). Si tu atleta reto supera la marca mínima, sus puntos se multiplican por 2. Tu puntuación final = puntos ganados ÷ puntos invertidos × 100. Da igual si elegiste 2 o 4 atletas: se premia la eficiencia de tus elecciones.</p>
                     </div>
                   </div>
                 </div>
@@ -898,20 +1307,56 @@ export default function OnboardingPage() {
                 <div className="h-9" />
               </header>
 
-              <main className="flex-1 px-6 pb-28 flex flex-col justify-center items-center text-center pointer-events-none">
-                <h1 className="text-5xl font-semibold tracking-tight text-slate-900 mb-4">
+              <main className="flex-1 px-6 pb-28 flex flex-col justify-center items-center text-center">
+                <h1 className="text-5xl font-semibold tracking-tight text-slate-900 mb-3">
                   ¡Todo listo!
                 </h1>
-                <p className="text-slate-600 text-[17px] leading-relaxed max-w-[280px] mb-4">
+                <p className="text-slate-600 text-[16px] leading-relaxed max-w-[280px] mb-4">
                   Empieza el reto y demuestra tus conocimientos de atletismo.
                 </p>
 
-                <CountdownTimer />
+                <div className="w-full max-w-[280px] mt-2 mb-6 flex flex-col gap-2 pointer-events-auto">
+                  <label htmlFor="nickname" className="text-xs font-black uppercase tracking-[0.1em] text-slate-500 text-left">
+                    Tu Apodo (Opcional)
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="nickname"
+                      type="text"
+                      maxLength={15}
+                      value={nicknameInput}
+                      onChange={(e) => setNicknameInput(e.target.value)}
+                      placeholder="Ej. RayoVeloz, Juan..."
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    />
+                    {nicknameInput && (
+                      <button
+                        type="button"
+                        onClick={() => setNicknameInput("")}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 flex items-center justify-center rounded-full hover:bg-slate-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px] font-black">close</span>
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal text-left">
+                    Se mostrará públicamente en la clasificación en vivo. Máx. 15 caracteres.
+                  </p>
+                </div>
+
+                <div className="mt-2 mb-2 size-16 rounded-full bg-amber-50 text-amber-500 border border-amber-200 flex items-center justify-center shadow-[0_8px_20px_rgba(245,158,11,0.15)] animate-bounce">
+                  <Trophy className="w-8 h-8" />
+                </div>
               </main>
 
               <footer className={ctaFooterClass}>
                 <button
-                  onClick={() => router.push("/event/disco")}
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem("retomemorial_nickname", nicknameInput.trim());
+                    }
+                    router.push("/event/disco");
+                  }}
                   aria-label="Empezar y crear equipo"
                   className="bg-slate-900 text-white font-semibold py-4 px-12 rounded-full text-[17px] hover:bg-slate-800 transition-all active:scale-95 duration-200 shadow-[0_4px_20_rgba(15,23,42,0.2)] w-full max-w-[280px] mx-auto flex items-center justify-center"
                 >

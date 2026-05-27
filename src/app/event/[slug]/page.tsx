@@ -2,15 +2,15 @@
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { EVENTS, ATHLETES, getAthleteCost } from "@/lib/data";
-import { submitFullParticipation, isDeviceLocked } from "@/app/actions";
+import { EVENTS, ATHLETES, getAthleteCost, type AthletesByEvent, type AthleteWithMeta, type AthleteHighlightData } from "@/lib/data";
+import { submitFullParticipation, isDeviceLocked, getAthletesWithMetaData } from "@/app/actions";
 import { MultiStepLoader } from "@/components/ui/multi-step-loader";
 import { ShineBorder } from "@/registry/magicui/shine-border";
 import { Highlighter } from "@/registry/magicui/highlighter";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { getOrCreateDeviceId } from "@/lib/device-id";
 import { motion, AnimatePresence } from "framer-motion";
-import { MoveLeft, Plus, Check, Lock, Search, Medal } from "lucide-react";
+import { MoveLeft, Plus, Check, Lock, Search, Medal, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const loadingStates = [
@@ -170,6 +170,19 @@ export default function UnifiedSelectionPage() {
     const [showCreateTeamHint, setShowCreateTeamHint] = useState(true);
     const [showHintSubtitleUnderline, setShowHintSubtitleUnderline] = useState(false);
     const [checkingDeviceLock, setCheckingDeviceLock] = useState(true);
+    const [athletesData, setAthletesData] = useState<AthletesByEvent>(ATHLETES);
+    const [athletesMeta, setAthletesMeta] = useState<AthleteWithMeta[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        getAthletesWithMetaData().then(({ athletes, meta }) => {
+            if (!cancelled) {
+                setAthletesData(athletes);
+                setAthletesMeta(meta);
+            }
+        });
+        return () => { cancelled = true; };
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -204,7 +217,7 @@ export default function UnifiedSelectionPage() {
     }, [router]);
 
     const activeEvent = EVENTS.find(e => e.slug === activeEventSlug) || EVENTS[0];
-    const eventAthletes = ATHLETES[activeEventSlug as keyof typeof ATHLETES];
+    const eventAthletes = athletesData[activeEventSlug as keyof typeof athletesData];
 
     useEffect(() => {
         if (routeSlug && EVENTS.some(e => e.slug === routeSlug)) {
@@ -212,24 +225,7 @@ export default function UnifiedSelectionPage() {
         }
     }, [routeSlug]);
 
-    useEffect(() => {
-        if (isStepWinnerSelect) {
-            setSelections(prev => {
-                const updated = { ...prev };
-                let changed = false;
-                for (const slug in updated) {
-                    if (updated[slug].winnerId === null && (updated[slug].maleId || updated[slug].femaleId)) {
-                        updated[slug] = {
-                            ...updated[slug],
-                            winnerId: "none"
-                        };
-                        changed = true;
-                    }
-                }
-                return changed ? updated : prev;
-            });
-        }
-    }, [isStepWinnerSelect]);
+    // Removed auto-fill winners useEffect
 
     useEffect(() => {
         return () => {
@@ -242,7 +238,8 @@ export default function UnifiedSelectionPage() {
     const filteredAthletes = useMemo(() => {
         if (!eventAthletes) return [];
         const pool = genderFilter === 'male' ? eventAthletes.male : eventAthletes.female;
-        return pool.filter(athlete =>
+        const sortedPool = [...pool].sort((a, b) => b.mark - a.mark);
+        return sortedPool.filter(athlete =>
             athlete.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
     }, [eventAthletes, searchQuery, genderFilter]);
@@ -436,6 +433,89 @@ export default function UnifiedSelectionPage() {
     const isBudgetExceeded = remainingPoints < 0;
     const canConfirm = hasAnySelection && !isBudgetExceeded;
 
+    const teamAthletes = useMemo(() => {
+        const list: {
+            id: string;
+            name: string;
+            image: string;
+            eventSlug: string;
+            eventName: string;
+            genderKey: "male" | "female";
+            genderLabel: string;
+            mark: number;
+        }[] = [];
+        
+        EVENTS.forEach((event) => {
+            const sel = selections[event.slug];
+            if (sel.maleId) {
+                const athlete = athletesData[event.slug as keyof typeof athletesData].male.find(a => a.id === sel.maleId);
+                if (athlete) {
+                    list.push({
+                        id: athlete.id,
+                        name: athlete.name,
+                        image: athlete.image,
+                        eventSlug: event.slug,
+                        eventName: event.name,
+                        genderKey: "male",
+                        genderLabel: "Masculino",
+                        mark: athlete.mark,
+                    });
+                }
+            }
+            if (sel.femaleId) {
+                const athlete = athletesData[event.slug as keyof typeof athletesData].female.find(a => a.id === sel.femaleId);
+                if (athlete) {
+                    list.push({
+                        id: athlete.id,
+                        name: athlete.name,
+                        image: athlete.image,
+                        eventSlug: event.slug,
+                        eventName: event.name,
+                        genderKey: "female",
+                        genderLabel: "Femenina",
+                        mark: athlete.mark,
+                    });
+                }
+            }
+        });
+        return list;
+    }, [selections]);
+
+    const selectedRetoAthleteId = useMemo(() => {
+        for (const slug of Object.keys(selections)) {
+            const selection = selections[slug];
+            if (selection.winnerId && selection.winnerId !== "none" && selection.winnerId !== "both") {
+                return selection.winnerId;
+            }
+        }
+        return null;
+    }, [selections]);
+
+    const handleSelectRetoAthlete = (athleteId: string, eventSlug: string) => {
+        setSelections((prev) => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach((slug) => {
+                const current = updated[slug];
+                if (slug === eventSlug) {
+                    updated[slug] = {
+                        ...current,
+                        winnerId: current.winnerId === athleteId ? null : athleteId
+                    };
+                } else {
+                    updated[slug] = {
+                        ...current,
+                        winnerId: null
+                    };
+                }
+            });
+            return updated;
+        });
+    };
+
+    const canSubmitApuesta = useMemo(() => {
+        return Boolean(selectedRetoAthleteId);
+    }, [selectedRetoAthleteId]);
+
     useEffect(() => {
         if (isBudgetExceeded) {
             setErrorMsg("Has superado el límite de 35 puntos.");
@@ -474,12 +554,12 @@ export default function UnifiedSelectionPage() {
             name: athlete.name,
             image: athlete.image,
             mark: athlete.mark ?? 0,
-            bio: ATHLETE_BIOS[athlete.id] ?? `Atleta especialista en ${activeEvent.name.toLowerCase()} con enfoque competitivo y regularidad en grandes eventos.`,
-            highlights: ATHLETE_HIGHLIGHTS[athlete.id] ?? [
-                { tier: "gold", label: "Rendimiento consistente en temporada" },
-                { tier: "silver", label: "Competidor habitual en pruebas oficiales" },
-                { tier: "bronze", label: `Mejor marca registrada: ${(athlete.mark ?? 0).toFixed(2)} m` },
-            ],
+            bio: athletesMeta.find(m => m.id === athlete.id)?.bio || ATHLETE_BIOS[athlete.id] || `Atleta especialista en ${activeEvent.name.toLowerCase()} con enfoque competitivo y regularidad en grandes eventos.`,
+            highlights: athletesMeta.find(m => m.id === athlete.id)?.highlights ?? (ATHLETE_HIGHLIGHTS[athlete.id] ?? [
+                { tier: "gold" as const, label: "Rendimiento consistente en temporada" },
+                { tier: "silver" as const, label: "Competidor habitual en pruebas oficiales" },
+                { tier: "bronze" as const, label: `Mejor marca registrada: ${(athlete.mark ?? 0).toFixed(2)} m` },
+            ]),
             eventName: activeEvent.name,
             genderKey: genderFilter,
             genderLabel: genderFilter === "male" ? "M" : "F",
@@ -496,13 +576,18 @@ export default function UnifiedSelectionPage() {
             setIsStepWinnerSelect(true);
             return;
         }
+        if (!selectedRetoAthleteId) {
+            setErrorMsg("Selecciona qué atleta de tu equipo superará el reto (x2).");
+            return;
+        }
         setLoading(true);
     };
 
     const onLoaderComplete = async () => {
         try {
             const deviceId = await getOrCreateDeviceId();
-            const result = await submitFullParticipation(selections, deviceId ?? undefined);
+            const nickname = typeof window !== "undefined" ? localStorage.getItem("retomemorial_nickname") || undefined : undefined;
+            const result = await submitFullParticipation(selections, deviceId ?? undefined, nickname);
             if (result.success && result.reference) {
                 window.location.href = `/confirmation/${result.reference}`;
             } else {
@@ -522,8 +607,8 @@ export default function UnifiedSelectionPage() {
 
     const getAthleteById = (id: string | null, event: string, gender: 'male' | 'female'): AthleteSlotData | null => {
         if (!id) return null;
-        const athletes = ATHLETES[event as keyof typeof ATHLETES];
-        const found = athletes[gender].find(a => a.id === id);
+        const eventPool = athletesData[event as keyof typeof athletesData];
+        const found = eventPool[gender].find(a => a.id === id);
         return found ? { id: found.id, name: found.name, image: found.image } : null;
     };
 
@@ -665,158 +750,56 @@ export default function UnifiedSelectionPage() {
                             transition={{ duration: 0.3 }}
                             className="flex-1 flex flex-col min-h-0 relative z-10 overflow-y-auto ios-scroll overscroll-contain px-4 sm:px-6 pb-24 pt-2"
                         >
-                            <div className="mb-4 text-center">
+                            <div className="mb-6 text-center">
                                 <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-                                    ¿Quién conseguirá el reto?
+                                    ¿Quién superará el reto?
                                 </h2>
-                                <p className="text-xs text-slate-500 mt-1 max-w-[320px] mx-auto leading-relaxed">
-                                    Elige qué atletas superarán la marca del reto en cada prueba activa de tu equipo.
+                                <p className="text-xs text-slate-500 mt-1.5 max-w-[320px] mx-auto leading-relaxed">
+                                    Elige al único atleta de tu equipo que puntuará el doble (x2) si supera la marca mínima.
                                 </p>
                             </div>
 
-                            <div className="space-y-4">
-                                {EVENTS.filter(event => !isEventClosed(event.slug) && (selections[event.slug].maleId || selections[event.slug].femaleId)).map(event => {
-                                    const selection = selections[event.slug];
-                                    const maleAthlete = getAthleteById(selection.maleId, event.slug, "male");
-                                    const femaleAthlete = getAthleteById(selection.femaleId, event.slug, "female");
-
-                                    const isWinnerMale = selection.winnerId === selection.maleId;
-                                    const isWinnerFemale = selection.winnerId === selection.femaleId;
-                                    const isWinnerBoth = selection.winnerId === "both";
-                                    const isWinnerNone = selection.winnerId === "none";
-
+                            <div className="grid grid-cols-2 gap-4">
+                                {teamAthletes.map((athlete) => {
+                                    const isSelected = selectedRetoAthleteId === athlete.id;
+                                    const markToBeat = EVENTS.find(e => e.slug === athlete.eventSlug)?.markToBeat[athlete.genderKey];
+                                    
                                     return (
-                                        <div key={event.slug} className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm flex flex-col gap-4">
-                                            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                                        Prueba
-                                                    </span>
-                                                    <span className="text-base font-extrabold text-slate-900 tracking-tight">
-                                                        {event.name}
-                                                    </span>
+                                        <div
+                                            key={athlete.id}
+                                            onClick={() => handleSelectRetoAthlete(athlete.id, athlete.eventSlug)}
+                                            className={cn(
+                                                "border-2 rounded-3xl p-3 flex flex-col items-center text-center transition-all duration-300 cursor-pointer relative overflow-hidden select-none",
+                                                isSelected 
+                                                    ? "bg-amber-50/70 border-amber-400 shadow-[0_12px_28px_rgba(245,158,11,0.12)] scale-[1.03]" 
+                                                    : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"
+                                            )}
+                                        >
+                                            {isSelected && (
+                                                <div className="absolute top-2 right-2 z-10 bg-amber-500 text-amber-950 px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider uppercase flex items-center gap-0.5 shadow-sm">
+                                                    <Trophy className="w-2.5 h-2.5" />
+                                                    <span>x2</span>
                                                 </div>
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                                        Marcas: H {event.markToBeat.male}m / M {event.markToBeat.female}m
-                                                    </span>
-                                                </div>
+                                            )}
+                                            
+                                            <div className="relative size-20 rounded-2xl overflow-hidden mb-3 border border-slate-100">
+                                                <ProgressiveImage
+                                                    src={athlete.image}
+                                                    alt={athlete.name}
+                                                    wrapperClassName="size-full"
+                                                    className="size-full object-cover saturate-[1.12]"
+                                                />
                                             </div>
-
-                                            {/* Display selected athletes */}
-                                            <div className="grid grid-cols-2 gap-3">
-                                                {maleAthlete ? (
-                                                    <div className={cn(
-                                                        "border rounded-2xl p-2.5 flex items-center gap-2.5 transition-all duration-300",
-                                                        (isWinnerMale || isWinnerBoth) ? "bg-amber-50/50 border-amber-200" : "bg-slate-50/50 border-slate-100"
-                                                    )}>
-                                                        <ProgressiveImage
-                                                            src={maleAthlete.image}
-                                                            alt={maleAthlete.name}
-                                                            wrapperClassName="size-11 rounded-xl shrink-0"
-                                                            className="size-full object-cover rounded-xl"
-                                                        />
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="text-xs font-bold text-slate-800 truncate">{maleAthlete.name}</p>
-                                                            <p className="text-[10px] text-slate-500 font-medium">Marca: {ATHLETES[event.slug as keyof typeof ATHLETES].male.find(a => a.id === selection.maleId)?.mark}m</p>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="border border-dashed border-slate-200 bg-slate-50/50 rounded-2xl p-2.5 flex items-center justify-center text-xs text-slate-400 font-medium">
-                                                        Sin atleta masculino
-                                                    </div>
-                                                )}
-
-                                                {femaleAthlete ? (
-                                                    <div className={cn(
-                                                        "border rounded-2xl p-2.5 flex items-center gap-2.5 transition-all duration-300",
-                                                        (isWinnerFemale || isWinnerBoth) ? "bg-amber-50/50 border-amber-200" : "bg-slate-50/50 border-slate-100"
-                                                    )}>
-                                                        <ProgressiveImage
-                                                            src={femaleAthlete.image}
-                                                            alt={femaleAthlete.name}
-                                                            wrapperClassName="size-11 rounded-xl shrink-0"
-                                                            className="size-full object-cover rounded-xl"
-                                                        />
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="text-xs font-bold text-slate-800 truncate">{femaleAthlete.name}</p>
-                                                            <p className="text-[10px] text-slate-500 font-medium">Marca: {ATHLETES[event.slug as keyof typeof ATHLETES].female.find(a => a.id === selection.femaleId)?.mark}m</p>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="border border-dashed border-slate-200 bg-slate-50/50 rounded-2xl p-2.5 flex items-center justify-center text-xs text-slate-400 font-medium">
-                                                        Sin atleta femenina
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Predictions Grid */}
-                                            <div className="grid grid-cols-2 gap-2 mt-1">
-                                                {maleAthlete && (
-                                                    <button
-                                                        onClick={() => setSelections(prev => ({
-                                                            ...prev,
-                                                            [event.slug]: { ...prev[event.slug], winnerId: selection.maleId }
-                                                        }))}
-                                                        className={cn(
-                                                            "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
-                                                            isWinnerMale 
-                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
-                                                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                                                        )}
-                                                    >
-                                                        Solo {maleAthlete.name.split(" ")[0]}
-                                                    </button>
-                                                )}
-
-                                                {femaleAthlete && (
-                                                    <button
-                                                        onClick={() => setSelections(prev => ({
-                                                            ...prev,
-                                                            [event.slug]: { ...prev[event.slug], winnerId: selection.femaleId }
-                                                        }))}
-                                                        className={cn(
-                                                            "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
-                                                            isWinnerFemale 
-                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
-                                                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                                                        )}
-                                                    >
-                                                        Solo {femaleAthlete.name.split(" ")[0]}
-                                                    </button>
-                                                )}
-
-                                                {maleAthlete && femaleAthlete && (
-                                                    <button
-                                                        onClick={() => setSelections(prev => ({
-                                                            ...prev,
-                                                            [event.slug]: { ...prev[event.slug], winnerId: "both" }
-                                                        }))}
-                                                        className={cn(
-                                                            "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
-                                                            isWinnerBoth 
-                                                                ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
-                                                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                                                        )}
-                                                    >
-                                                        Ambos
-                                                    </button>
-                                                )}
-
-                                                <button
-                                                    onClick={() => setSelections(prev => ({
-                                                        ...prev,
-                                                        [event.slug]: { ...prev[event.slug], winnerId: "none" }
-                                                    }))}
-                                                    className={cn(
-                                                        "h-10 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border",
-                                                        isWinnerNone 
-                                                            ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
-                                                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-                                                    )}
-                                                >
-                                                    Ninguno
-                                                </button>
+                                            
+                                            <p className="font-extrabold text-[14px] leading-tight text-slate-900 line-clamp-1">
+                                                {athlete.name}
+                                            </p>
+                                            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mt-1">
+                                                {athlete.eventName} · {athlete.genderLabel === "Masculino" ? "M" : "F"}
+                                            </p>
+                                            <div className="mt-2.5 bg-slate-100 border border-slate-200/50 rounded-xl px-2.5 py-1 w-full flex flex-col items-center justify-center">
+                                                <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Marca a superar</span>
+                                                <span className="text-[12px] font-black text-slate-800 mt-0.5">{markToBeat}m</span>
                                             </div>
                                         </div>
                                     );
@@ -847,7 +830,7 @@ export default function UnifiedSelectionPage() {
                                         <span className="text-xs text-slate-600 mt-0.5 budget-banner-desc">
                                             {isBudgetExceeded 
                                                 ? "¡Ajusta tu equipo para no superar el límite!" 
-                                                : "Para crear tu equipo tienes 35 puntos"}
+                                                : `Puntos invertidos: ${totalSpentPoints} / 35`}
                                         </span>
                                     </div>
                                     <div className="flex items-baseline gap-1 font-mono">
@@ -1088,19 +1071,19 @@ export default function UnifiedSelectionPage() {
                         <p className="mb-3 text-center text-xs font-medium text-red-500">{errorMsg}</p>
                     )}
                     <button
-                        disabled={isStepWinnerSelect ? false : !canConfirm}
+                        disabled={isStepWinnerSelect ? !canSubmitApuesta : !canConfirm}
                         onClick={handleConfirm}
-                        aria-disabled={isStepWinnerSelect ? false : !canConfirm}
+                        aria-disabled={isStepWinnerSelect ? !canSubmitApuesta : !canConfirm}
                         aria-label={isStepWinnerSelect ? "Enviar apuesta" : "Confirmar equipo"}
                         className={cn(
                             "w-full h-14 sm:h-14 rounded-[36px] font-black text-[15px] sm:text-[16px] uppercase tracking-[0.2em] sm:tracking-widest flex items-center justify-center gap-3 transition-all duration-500 translate-y-[6px]",
-                            (isStepWinnerSelect || canConfirm)
+                            (isStepWinnerSelect ? canSubmitApuesta : canConfirm)
                                 ? "bg-slate-900 text-white active:scale-[0.98] opacity-100 hover:bg-slate-800 cursor-pointer shadow-md"
                                 : "bg-slate-300 text-slate-500 cursor-not-allowed opacity-80"
                         )}
                     >
                         {isStepWinnerSelect ? "Enviar apuesta" : "Confirmar equipo"}
-                        {!isStepWinnerSelect && !canConfirm && <Lock className="w-4 h-4 mb-0.5" />}
+                        {((!isStepWinnerSelect && !canConfirm) || (isStepWinnerSelect && !canSubmitApuesta)) && <Lock className="w-4 h-4 mb-0.5" />}
                     </button>
                 </div>
             </div>
@@ -1458,7 +1441,7 @@ function AthleteSlot({
                 WebkitBackfaceVisibility: "visible",
             }}
             className={cn(
-                "aspect-[3/3.5] sm:aspect-[4/6] rounded-[14px] sm:rounded-[22px] border relative transition-all duration-500 overflow-hidden athlete-slot-card",
+                "aspect-[3/2.7] sm:aspect-[4/6] rounded-[14px] sm:rounded-[22px] border relative transition-all duration-500 overflow-hidden athlete-slot-card",
                 shouldFloat && "team-sticker",
                 shouldFloat && floatClass,
                 isClosed

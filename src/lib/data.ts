@@ -4,8 +4,8 @@ export const EVENTS = [
         name: 'Disco',
         slug: 'disco',
         title: 'Lanzamiento de Disco',
-        image: '/disco.jpg', // User provided image
-        description: 'Adivina qui\u00e9n lanzar\u00e1 m\u00e1s lejos.',
+        image: '/disco.jpg',
+        description: 'Adivina quién lanzará más lejos.',
         markToBeat: { male: 62.00, female: 61.00 },
         startTime: '2026-06-15T19:30:00',
     },
@@ -14,14 +14,37 @@ export const EVENTS = [
         name: 'Jabalina',
         slug: 'jabalina',
         title: 'Lanzamiento de Jabalina',
-        image: '/jabalina.jpg', // User provided image
+        image: '/jabalina.jpg',
         description: 'La prueba de los dioses.',
         markToBeat: { male: 79.00, female: 61.00 },
         startTime: '2026-06-15T18:20:00',
     },
+    
 ];
 
-export const ATHLETES = {
+export type Athlete = {
+    id: string;
+    name: string;
+    mark: number;
+    image: string;
+};
+
+export type AthleteWithMeta = Athlete & {
+    eventSlug: string;
+    gender: 'male' | 'female';
+    bio: string;
+    highlights: AthleteHighlightData[];
+};
+
+export type AthleteHighlightData = {
+    tier: 'gold' | 'silver' | 'bronze';
+    label: string;
+    sortOrder: number;
+};
+
+export type AthletesByEvent = Record<string, { male: Athlete[]; female: Athlete[] }>;
+
+const ATHLETES_LOCAL: AthletesByEvent = {
     disco: {
         male: [
             { id: 'dm1', name: 'Marcos Moreno', mark: 61.15, image: '/marcosmoreno.jpg' },
@@ -58,31 +81,70 @@ export const ATHLETES = {
             { id: 'jf6', name: 'Arantza Moreno', mark: 59.15, image: 'https://images.unsplash.com/photo-1517649763962-0c623066013b?q=80&w=400&auto=format&fit=crop' },
         ],
     },
-    longitud: {
-        male: [
-            { id: 'lm1', name: 'Miltiadis Tentoglou', mark: 8.52, image: 'https://images.unsplash.com/photo-1552674605-46d526d25246?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lm2', name: 'Wayne Pinnock', mark: 8.50, image: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lm3', name: 'Wang Jianan', mark: 8.36, image: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lm4', name: 'Simon Ehammer', mark: 8.45, image: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lm5', name: 'Carey McLeod', mark: 8.40, image: 'https://images.unsplash.com/photo-1541252260730-0412e8e2108e?q=80&w=400&auto=format&fit=crop' },
-        ],
-        female: [
-            { id: 'lf1', name: 'Ivana Vuleta', mark: 7.06, image: 'https://images.unsplash.com/photo-1594882645126-14020914d58d?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lf2', name: 'Malaika Mihambo', mark: 7.12, image: 'https://images.unsplash.com/photo-1566895291253-fa587530db9c?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lf3', name: 'Ese Brume', mark: 7.02, image: 'https://images.unsplash.com/photo-1502014822147-1aed8061dfc8?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lf4', name: 'Quanesha Burks', mark: 6.98, image: 'https://images.unsplash.com/photo-1434682881908-b43d0467b798?q=80&w=400&auto=format&fit=crop' },
-            { id: 'lf5', name: 'Brooke Buschkuehl', mark: 7.13, image: 'https://images.unsplash.com/photo-1535131749050-aac1f124c655?q=80&w=400&auto=format&fit=crop' },
-        ],
-    },
 };
 
-export function getAthleteCost(athleteId: string, eventSlug: string, genderKey: 'male' | 'female'): number {
-    const eventPool = ATHLETES[eventSlug as keyof typeof ATHLETES];
+export const ATHLETES: AthletesByEvent = ATHLETES_LOCAL;
+
+const BIOS_LOCAL: Record<string, string> = {
+    dm1: 'Discóbolo riojano de La Rioja Atletismo. En marzo de 2025 fue bronce absoluto de España con 61,15 m y oro sub-23 en el Nacional de Lanzamientos de Invierno. También compitió internacionalmente en categorías sub-20 y sub-23.',
+    dm2: 'Especialista hispano-cubano del Tenerife CajaCanaria. Campeón de España absoluto de disco en 2021, 2023 y 2025; en 2025 ganó con 64,53 m y récord del campeonato. Fue oro europeo sub-18 y sub-20, y doble bronce europeo sub-23.',
+    dm3: 'Discóbolo universitario (UC3M) en progresión dentro del circuito nacional. Figura en el Campeonato de España Universitario 2024 en disco (2 kg), compitiendo en categoría masculina.',
+    dm4: 'Lanzador ucraniano afincado en Logroño, habitual en competiciones nacionales con Atletismo Numantino. En 2025 fue subcampeón sub-23 en el Nacional de Invierno (54,68 m) y 4.º en el Europeo sub-23 con 59,85 m.',
+    dm5: 'Atleta del Trops-Cueva de Nerja especializado en disco. Fue campeón de España sub-20 en 2025 (49,76 m) y posteriormente campeón de España sub-23 (53,61 m), además de entrar en la preselección española sub-23 para la Copa de Europa de Lanzamientos 2026.',
+};
+
+const HIGHLIGHTS_LOCAL: Record<string, AthleteHighlightData[]> = {
+    dm1: [
+        { tier: 'gold', label: 'Oro sub-23 en invierno (2025)', sortOrder: 0 },
+        { tier: 'bronze', label: 'Bronce de España absoluto (2025)', sortOrder: 1 },
+        { tier: 'silver', label: 'Marca destacada: 61,15 m', sortOrder: 2 },
+    ],
+    dm2: [
+        { tier: 'gold', label: 'Campeón de España absoluto (2021, 2023, 2025)', sortOrder: 0 },
+        { tier: 'silver', label: 'Récord de campeonato: 64,53 m (2025)', sortOrder: 1 },
+        { tier: 'bronze', label: 'Doble bronce europeo sub-23', sortOrder: 2 },
+    ],
+    dm3: [
+        { tier: 'gold', label: 'Participación en CEU 2024 (disco 2 kg)', sortOrder: 0 },
+        { tier: 'silver', label: 'Proyección dentro del circuito nacional', sortOrder: 1 },
+        { tier: 'bronze', label: 'Perfil universitario competitivo', sortOrder: 2 },
+    ],
+    dm4: [
+        { tier: 'gold', label: '4.º en Europeo sub-23 (2025)', sortOrder: 0 },
+        { tier: 'silver', label: 'Subcampeón de España sub-23 (2025)', sortOrder: 1 },
+        { tier: 'silver', label: 'Plata nacional de invierno (54,68 m)', sortOrder: 2 },
+    ],
+    dm5: [
+        { tier: 'gold', label: 'Campeón de España sub-23 (2025)', sortOrder: 0 },
+        { tier: 'silver', label: 'Campeón de España sub-20 (2025)', sortOrder: 1 },
+        { tier: 'bronze', label: 'Preselección Copa de Europa 2026', sortOrder: 2 },
+    ],
+};
+
+export function getAthleteCost(athleteId: string, eventSlug: string, genderKey?: 'male' | 'female'): number {
+    return getAthleteCostFromList(athleteId, ATHLETES[eventSlug]);
+}
+
+export function getAthleteCostFromList(athleteId: string, eventPool?: { male: Athlete[]; female: Athlete[] }): number {
     if (!eventPool) return 0;
-    const pool = eventPool[genderKey];
-    if (!pool) return 0;
-    const index = pool.findIndex((a) => a.id === athleteId);
+
+    const allAthletes = [
+        ...(eventPool.male || []),
+        ...(eventPool.female || []),
+    ];
+
+    const sorted = [...allAthletes].sort((a, b) => b.mark - a.mark);
+    const index = sorted.findIndex((a) => a.id === athleteId);
     if (index === -1) return 0;
+
     const ranking = index + 1;
     return ranking <= 12 ? (13 - ranking) : 1;
+}
+
+export function getAthleteBioLocal(athleteId: string): string {
+    return BIOS_LOCAL[athleteId] ?? '';
+}
+
+export function getAthleteHighlightsLocal(athleteId: string): AthleteHighlightData[] {
+    return HIGHLIGHTS_LOCAL[athleteId] ?? [];
 }

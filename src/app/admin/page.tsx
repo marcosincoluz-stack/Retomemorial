@@ -8,9 +8,13 @@ import {
   getAdminDashboard,
   getAdminSessionState,
   getBetByReference,
+  deleteBetByReference,
   markBetAsDelivered,
+  getResetPreview,
+  resetCompetitionData,
   type AdminBetDetail,
   type AdminDashboard,
+  type ResetPreview,
 } from "@/app/admin/actions";
 import {
   Search,
@@ -19,7 +23,11 @@ import {
   ShieldCheck,
   Trophy,
   BarChart3,
+  Trash2,
   Users,
+  AlertTriangle,
+  RotateCcw,
+  Loader2,
 } from "lucide-react";
 import {
   PolarAngleAxis,
@@ -32,8 +40,13 @@ import {
 } from "recharts";
 import { ProgressiveImage } from "@/components/ui/progressive-image";
 import { ATHLETES, getAthleteCost } from "@/lib/data";
+import AthletesTab from "@/app/admin/athletes/page";
+import ResultsTab from "@/app/admin/results/page";
+import ClasificacionTab from "@/app/admin/clasificacion/page";
 
 type AuthStatus = "loading" | "unauthenticated" | "authenticated";
+
+type TabKey = "resumen" | "atletas" | "apuestas" | "resultados" | "clasificacion";
 
 const findAthleteCost = (athleteId: string) => {
   for (const [eventSlug, genders] of Object.entries(ATHLETES)) {
@@ -63,8 +76,9 @@ const isAthleteChallengeWinner = (
 };
 
 export default function AdminPage() {
+  const pendingPreviewLimit = 5;
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -74,17 +88,39 @@ export default function AdminPage() {
 
   const [searchRef, setSearchRef] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
+  const [deleteLoadingRef, setDeleteLoadingRef] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [betDetail, setBetDetail] = useState<AdminBetDetail | null>(null);
+  const [activeTab, setActiveTab] = useState<TabKey>("resumen");
+  const [showAllPending, setShowAllPending] = useState(false);
+  const [resetPreview, setResetPreview] = useState<ResetPreview | null>(null);
+  const [loadingResetPreview, setLoadingResetPreview] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
+  const [resetConfirmationChecked, setResetConfirmationChecked] = useState(false);
+  const [resetConfirmationText, setResetConfirmationText] = useState("");
+  const [resettingCompetitionData, setResettingCompetitionData] = useState(false);
 
   useEffect(() => {
     void bootstrap();
   }, []);
 
-  const recentPending = useMemo(() => {
+  useEffect(() => {
+    if (authStatus !== "authenticated" || activeTab !== "apuestas") return;
+    void loadResetPreview();
+  }, [authStatus, activeTab]);
+
+  const pendingTickets = useMemo(() => {
     if (!dashboard) return [];
-    return dashboard.recentBets.filter((item) => !item.delivered).slice(0, 5);
+    return dashboard.recentBets.filter((item) => !item.delivered);
   }, [dashboard]);
+
+  const visiblePendingTickets = useMemo(() => {
+    if (showAllPending) return pendingTickets;
+    return pendingTickets.slice(0, pendingPreviewLimit);
+  }, [pendingTickets, showAllPending]);
+
+  const hasMorePendingThanPreview = pendingTickets.length > pendingPreviewLimit;
 
   const searchedBetTotalSpentPoints = useMemo(() => {
     if (!betDetail) return 0;
@@ -124,17 +160,36 @@ export default function AdminPage() {
     setLoadingDashboard(false);
   };
 
+  const loadResetPreview = async () => {
+    setLoadingResetPreview(true);
+    setResetError(null);
+
+    const response = await getResetPreview();
+    if (!response.ok) {
+      if (response.unauthorized) {
+        setAuthStatus("unauthenticated");
+      } else {
+        setResetError(response.message ?? "No se pudo cargar el impacto del reset.");
+      }
+      setLoadingResetPreview(false);
+      return;
+    }
+
+    setResetPreview(response.data ?? null);
+    setLoadingResetPreview(false);
+  };
+
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoginError(null);
 
-    const result = await adminLogin(username.trim(), password);
+    const result = await adminLogin(email.trim(), password);
     if (!result.ok) {
       setLoginError(result.message ?? "No se pudo iniciar sesión.");
       return;
     }
 
-    setUsername("");
+    setEmail("");
     setPassword("");
     setAuthStatus("authenticated");
     await refreshDashboard();
@@ -192,6 +247,84 @@ export default function AdminPage() {
     await refreshDashboard();
   };
 
+  const handleDeleteBet = async (reference: string) => {
+    const normalizedReference = reference.trim().toUpperCase();
+    if (!normalizedReference) return;
+
+    const confirmed = window.confirm(
+      `¿Borrar la apuesta ${normalizedReference}? Esta acción elimina también sus picks, bloqueo de dispositivo y puntuación.`
+    );
+    if (!confirmed) return;
+
+    setDeleteLoadingRef(normalizedReference);
+    setSearchError(null);
+
+    const response = await deleteBetByReference(normalizedReference);
+    setDeleteLoadingRef(null);
+
+    if (!response.ok) {
+      if (response.unauthorized) {
+        setAuthStatus("unauthenticated");
+      } else {
+        setSearchError(response.message ?? "No se pudo borrar la apuesta.");
+      }
+      return;
+    }
+
+    if (betDetail?.reference === normalizedReference) {
+      setBetDetail(null);
+    }
+    if (searchRef.trim().toUpperCase() === normalizedReference) {
+      setSearchRef("");
+    }
+    await refreshDashboard();
+  };
+
+  const handleResetCompetitionData = async () => {
+    if (!resetConfirmationChecked) {
+      setResetError("Debes confirmar que entiendes la operación.");
+      return;
+    }
+
+    if (resetConfirmationText.trim().toUpperCase() !== "RESET") {
+      setResetError("Escribe RESET para desbloquear la operación.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Se borrarán TODAS las apuestas, resultados y clasificación actual. ¿Quieres continuar?"
+    );
+    if (!confirmed) return;
+
+    setResettingCompetitionData(true);
+    setResetError(null);
+    setResetSuccess(null);
+
+    const response = await resetCompetitionData();
+    setResettingCompetitionData(false);
+
+    if (!response.ok) {
+      if (response.unauthorized) {
+        setAuthStatus("unauthenticated");
+      } else {
+        setResetError(response.message ?? "No se pudo ejecutar el reset.");
+      }
+      return;
+    }
+
+    setResetSuccess(
+      `Reset completado (${new Date(response.executedAt ?? Date.now()).toLocaleString()}). ` +
+      `Apuestas: ${response.deleted?.participations ?? 0}, resultados: ${response.deleted?.results ?? 0}, puntuaciones: ${response.deleted?.scores ?? 0}.`
+    );
+    setBetDetail(null);
+    setSearchRef("");
+    setShowAllPending(false);
+    setResetConfirmationChecked(false);
+    setResetConfirmationText("");
+
+    await Promise.all([refreshDashboard(), loadResetPreview()]);
+  };
+
   if (authStatus === "loading") {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center">
@@ -220,14 +353,15 @@ export default function AdminPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <label className="block">
               <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-                Usuario
+                Email
               </span>
               <input
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-slate-400"
-                placeholder="admin"
-                autoComplete="username"
+                placeholder="admin@tudominio.com"
+                autoComplete="email"
               />
             </label>
             <label className="block">
@@ -265,11 +399,11 @@ export default function AdminPage() {
       <DotPattern className="fixed inset-0 z-0 opacity-20" cx={1} cy={1} cr={1} />
 
       <div className="relative z-10 max-w-7xl mx-auto">
-        <header className="mb-6 flex items-center justify-between gap-3">
+        <header className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl md:text-3xl font-black text-slate-900">Panel Admin</h1>
             <p className="text-xs md:text-sm text-slate-500 uppercase tracking-[0.14em]">
-              Estadísticas y control de apuestas
+              Estadísticas y control
             </p>
           </div>
           <button
@@ -282,57 +416,92 @@ export default function AdminPage() {
           </button>
         </header>
 
-        {dashboardError && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 text-sm font-medium">
-            {dashboardError}
-          </div>
+        <nav className="mb-6 flex gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          <button onClick={() => setActiveTab("resumen")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeTab === "resumen" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>Resumen</button>
+          <button onClick={() => setActiveTab("atletas")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeTab === "atletas" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>Atletas</button>
+          <button onClick={() => setActiveTab("apuestas")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeTab === "apuestas" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>Apuestas</button>
+          <button onClick={() => setActiveTab("resultados")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeTab === "resultados" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>Resultados</button>
+          <button onClick={() => setActiveTab("clasificacion")} className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${activeTab === "clasificacion" ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-900"}`}>Clasificación</button>
+        </nav>
+
+        {activeTab === "atletas" && <AthletesTab />}
+
+        {activeTab === "resultados" && <ResultsTab />}
+
+        {activeTab === "clasificacion" && <ClasificacionTab />}
+
+        {activeTab === "resumen" && (
+          <>
+            {dashboardError && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 text-sm font-medium">
+                {dashboardError}
+              </div>
+            )}
+
+            {loadingDashboard && !dashboard ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500 font-semibold">
+                Cargando métricas...
+              </div>
+            ) : null}
+
+            {dashboard && (
+              <>
+                <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+                  <MetricCard label="Total apuestas" value={dashboard.overview.totalApuestas} icon={<BarChart3 className="w-4 h-4" />} />
+                  <MetricCard label="Entregadas" value={dashboard.overview.totalEntregadas} icon={<CheckCircle2 className="w-4 h-4" />} />
+                  <MetricCard label="Pendientes" value={dashboard.overview.totalPendientes} icon={<Users className="w-4 h-4" />} />
+                  <MetricCard label="Apuestas hoy" value={dashboard.overview.apuestasHoy} icon={<BarChart3 className="w-4 h-4" />} />
+                  <MetricCard label="Huecos seleccionados" value={dashboard.overview.huecosSeleccionados} icon={<Trophy className="w-4 h-4" />} />
+                </section>
+
+                <section className="mb-6">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                    <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 mb-3">
+                      Favorito del público por prueba (%)
+                    </h2>
+                    <EventFavoritesCharts items={dashboard.eventFavorites} />
+                  </div>
+                </section>
+
+                <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5">
+                  <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 mb-3">
+                    Eventos
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {dashboard.eventStats.map((stat) => (
+                      <div key={stat.eventSlug} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="font-bold text-slate-900">{stat.eventName}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Tickets con selección: <b>{stat.ticketsConSeleccion}</b>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          M: <b>{stat.seleccionesMasculinas}</b> · F: <b>{stat.seleccionesFemeninas}</b>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </>
+            )}
+          </>
         )}
 
-        {loadingDashboard && !dashboard ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500 font-semibold">
-            Cargando métricas...
-          </div>
-        ) : null}
-
-        {dashboard && (
+        {activeTab === "apuestas" && (
           <>
-            <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
-              <MetricCard label="Total apuestas" value={dashboard.overview.totalApuestas} icon={<BarChart3 className="w-4 h-4" />} />
-              <MetricCard label="Entregadas" value={dashboard.overview.totalEntregadas} icon={<CheckCircle2 className="w-4 h-4" />} />
-              <MetricCard label="Pendientes" value={dashboard.overview.totalPendientes} icon={<Users className="w-4 h-4" />} />
-              <MetricCard label="Apuestas hoy" value={dashboard.overview.apuestasHoy} icon={<BarChart3 className="w-4 h-4" />} />
-              <MetricCard label="Huecos seleccionados" value={dashboard.overview.huecosSeleccionados} icon={<Trophy className="w-4 h-4" />} />
-            </section>
-
-            <section className="mb-6">
-              <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 mb-3">
-                  Favorito del público por prueba (%)
-                </h2>
-                <EventFavoritesCharts items={dashboard.eventFavorites} />
+            {dashboardError && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 text-sm font-medium">
+                {dashboardError}
               </div>
-            </section>
+            )}
 
-            <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5">
-                <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 mb-3">
-                  Eventos
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {dashboard.eventStats.map((stat) => (
-                    <div key={stat.eventSlug} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="font-bold text-slate-900">{stat.eventName}</p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Tickets con selección: <b>{stat.ticketsConSeleccion}</b>
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        M: <b>{stat.seleccionesMasculinas}</b> · F: <b>{stat.seleccionesFemeninas}</b>
-                      </p>
-                    </div>
-                  ))}
-                </div>
-            </section>
+            {loadingDashboard && !dashboard ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500 font-semibold">
+                Cargando...
+              </div>
+            ) : null}
 
-            <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
+            {dashboard && (
+              <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
               <div className="rounded-3xl border border-slate-200 bg-white p-5">
                 <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-500 mb-3">
                   Buscar ticket
@@ -394,7 +563,7 @@ export default function AdminPage() {
                           {isAthleteChallengeWinner(athlete.id, betDetail.selections) && (
                             <div className="absolute top-0 right-0 z-10 flex items-center gap-0.5 px-1 py-0.5 rounded-bl bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 text-[8px] font-black uppercase tracking-wider shadow border-l border-b border-amber-200/50">
                               <Trophy className="w-2.5 h-2.5" />
-                              <span>¡Reto!</span>
+                              <span>x2</span>
                             </div>
                           )}
                           <div className="flex items-center gap-2">
@@ -420,14 +589,25 @@ export default function AdminPage() {
                       ))}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleMarkDelivered}
-                      disabled={betDetail.delivered}
-                      className="w-full rounded-xl bg-emerald-600 text-white py-3 font-bold disabled:bg-slate-300 disabled:text-slate-500"
-                    >
-                      {betDetail.delivered ? "Ticket ya entregado" : "Marcar como entregado"}
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleMarkDelivered}
+                        disabled={betDetail.delivered}
+                        className="rounded-xl bg-emerald-600 text-white py-3 font-bold disabled:bg-slate-300 disabled:text-slate-500"
+                      >
+                        {betDetail.delivered ? "Ticket ya entregado" : "Marcar como entregado"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBet(betDetail.reference)}
+                        disabled={deleteLoadingRef === betDetail.reference}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 py-3 font-bold text-red-700 hover:bg-red-100 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {deleteLoadingRef === betDetail.reference ? "Borrando..." : "Borrar apuesta"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -437,10 +617,10 @@ export default function AdminPage() {
                   Tickets pendientes recientes
                 </h2>
                 <div className="space-y-2">
-                  {recentPending.length === 0 && (
+                  {pendingTickets.length === 0 && (
                     <p className="text-sm text-slate-500">No hay tickets pendientes.</p>
                   )}
-                  {recentPending.map((ticket) => (
+                  {visiblePendingTickets.map((ticket) => (
                     <div
                       key={ticket.reference}
                       className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 flex items-center justify-between gap-2"
@@ -451,24 +631,146 @@ export default function AdminPage() {
                           {new Date(ticket.createdAt).toLocaleString()} · {ticket.selectedSlotsCount} huecos
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSearchRef(ticket.reference);
-                        }}
-                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-bold text-slate-700"
-                      >
-                        Ver
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchRef(ticket.reference);
+                          }}
+                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-bold text-slate-700"
+                        >
+                          Ver
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBet(ticket.reference)}
+                          disabled={deleteLoadingRef === ticket.reference}
+                          className="inline-flex size-7 items-center justify-center rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          title="Borrar apuesta"
+                          aria-label={`Borrar apuesta ${ticket.reference}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
+                  {hasMorePendingThanPreview && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllPending((value) => !value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      {showAllPending
+                        ? "Ver menos"
+                        : `Ver todos (${pendingTickets.length})`}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              <div className="xl:col-span-2 rounded-3xl border border-red-200 bg-red-50/40 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-black uppercase tracking-[0.14em] text-red-700">
+                      Reset competición
+                    </h2>
+                    <p className="text-xs text-red-700/90 mt-1">
+                      Limpia datos de test: apuestas, resultados y clasificación calculada.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadResetPreview()}
+                    disabled={loadingResetPreview || resettingCompetitionData}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50 shrink-0"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    {loadingResetPreview ? "Cargando..." : "Actualizar impacto"}
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2">
+                  <ResetMetricCard label="Apuestas" value={resetPreview?.participations ?? 0} />
+                  <ResetMetricCard label="Picks" value={resetPreview?.picks ?? 0} />
+                  <ResetMetricCard label="Locks" value={resetPreview?.locks ?? 0} />
+                  <ResetMetricCard label="Resultados" value={resetPreview?.results ?? 0} />
+                  <ResetMetricCard label="Puntuaciones" value={resetPreview?.scores ?? 0} />
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-red-200 bg-white p-3.5">
+                  <label className="flex items-start gap-2.5 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={resetConfirmationChecked}
+                      onChange={(event) => setResetConfirmationChecked(event.target.checked)}
+                      className="mt-0.5 size-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                      disabled={resettingCompetitionData}
+                    />
+                    <span className="leading-snug">
+                      Confirmo que quiero borrar datos de test antes del día de competición.
+                    </span>
+                  </label>
+
+                  <label className="block mt-3">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      Escribe RESET para continuar
+                    </span>
+                    <input
+                      value={resetConfirmationText}
+                      onChange={(event) => setResetConfirmationText(event.target.value.toUpperCase())}
+                      placeholder="RESET"
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-mono uppercase outline-none focus:border-red-300"
+                      disabled={resettingCompetitionData}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleResetCompetitionData()}
+                    disabled={
+                      resettingCompetitionData ||
+                      !resetConfirmationChecked ||
+                      resetConfirmationText.trim().toUpperCase() !== "RESET"
+                    }
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-300 bg-red-600 px-4 py-3 text-sm font-black text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {resettingCompetitionData ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Ejecutando reset...
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4" />
+                        Ejecutar reset
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {resetError && (
+                  <p className="mt-3 text-sm font-medium text-red-700">{resetError}</p>
+                )}
+
+                {resetSuccess && (
+                  <p className="mt-3 text-sm font-medium text-emerald-700">{resetSuccess}</p>
+                )}
+              </div>
             </section>
+            )}
           </>
         )}
       </div>
     </main>
+  );
+}
+
+function ResetMetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-white px-2.5 py-2">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-red-500">{label}</p>
+      <p className="mt-0.5 font-mono text-lg font-black text-slate-900">{value}</p>
+    </div>
   );
 }
 
